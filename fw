@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+  <meta charset="UTF-8">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Fiscal Week Hesaplayıcı</title>
+
+  <style>
+
+    body {
+
+      font-family: Arial, sans-serif;
+
+      text-align: center;
+
+      padding: 20px;
+
+      background-color: #f4f4f4;
+
+    }
+
+    h1 {
+
+      color: #333;
+
+    }
+
+    .output {
+
+      margin-top: 30px;
+
+      padding: 20px;
+
+      display: inline-block;
+
+      background-color: #4CAF50; /* Yeşil arka plan */
+
+      color: #fff;
+
+      font-size: 2em;
+
+      font-weight: bold;
+
+      border-radius: 10px;
+
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+
+  <div class="output" id="output">Yükleniyor...</div>
+
+
+
+  <script>
+
+    function getFiscalWeek() {
+
+      const now = new Date();
+
+      const fiscalYearStart = new Date(now.getFullYear(), 0, 1); // 1 Ocak
+
+      
+
+      // Eğer bugünkü tarih mali yıl başlangıcından önceyse, bir önceki yılın 1 Ocak'ını al.
+
+      if (now < fiscalYearStart) {
+
+        fiscalYearStart.setFullYear(fiscalYearStart.getFullYear() - 1);
+
+      }
+
+
+
+      const oneWeekMilliseconds = 7 * 24 * 60 * 60 * 1000; // 1 hafta = 7 gün
+
+      const elapsedTime = now - fiscalYearStart; // Geçen süre (ms)
+
+      const fiscalWeek = Math.ceil(elapsedTime / oneWeekMilliseconds); // Haftaya yuvarlama
+
+
+
+      return fiscalWeek;
+
+    }
+
+
+
+    function displayFiscalWeek() {
+
+      const fiscalWeek = getFiscalWeek();
+
+      const outputElement = document.getElementById('output');
+
+      outputElement.textContent = `Fiscal Week: ${fiscalWeek}`;
+
+    }
+
+
+
+    // Sayfa yüklendiğinde çalıştır
+
+    displayFiscalWeek();
+
+  </script>
+
+</body>
+
+</html>
