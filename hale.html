@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Bebek Yaşı Hesaplayıcı</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding-top: 50px;
+    }
+    .info {
+      font-size: 24px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Bebeğinizin Yaşı</h1>
+  <div class="info" id="ageInfo"></div>
+
+  <script>
+    function calculateAge() {
+      const birthDate = new Date("2025-03-20");
+      const today = new Date();
+
+      // Zaman farkı (milisaniye cinsinden)
+      const diffTime = today - birthDate;
+
+      // Gün sayısı
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      // Hafta sayısı
+      const diffWeeks = Math.floor(diffDays / 7);
+
+      // Ay sayısı (yaklaşık)
+      const diffMonths = (today.getFullYear() - birthDate.getFullYear()) * 12 +
+                         (today.getMonth() - birthDate.getMonth());
+
+      // Sonuçları yazdır
+      document.getElementById("ageInfo").innerHTML =
+        `Bebeğiniz şu anda <strong>${diffWeeks}</strong> haftalık, <strong>${diffDays}</strong> günlük ve yaklaşık <strong>${diffMonths}</strong> aylıktır.`;
+    }
+
+    calculateAge();
+  </script>
+</body>
+</html>
