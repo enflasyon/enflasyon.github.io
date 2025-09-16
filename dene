@@ -1,15 +1,22 @@
-import requests
-from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
 from datetime import datetime, timedelta
+import time
 
-url = "https://"
+# Chrome driver'ı başlat
+options = webdriver.ChromeOptions()
+options.add_argument("--headless")  # görünmez çalıştırmak için (istersen çıkarabilirsin)
+driver = webdriver.Chrome(options=options)
 
-response = requests.get(url)
-soup = BeautifulSoup(response.text, "html.parser")
+# Rapor URL'si
+url = ".Günlük%20Giris-Cikis%20Raporu"
+driver.get(url)
 
-# HTML içinde giriş zamanı geçen hücreyi bul (örneğin "06:57:00" formatında)
-giris_hucre = soup.find("td", text=lambda t: t and ":" in t)  
-giris_saati_str = giris_hucre.get_text(strip=True)
+time.sleep(5)  # tablo yüklenmesi için bekle
+
+# Tablo içinden giriş zamanı hücresini bul (örn: 06:57:00 formatı)
+giris_element = driver.find_element(By.XPATH, "//td[contains(text(), ':')]")
+giris_saati_str = giris_element.text.strip()
 
 # String -> datetime
 giris_saati = datetime.strptime(giris_saati_str, "%H:%M:%S")
@@ -17,10 +24,12 @@ giris_saati = datetime.strptime(giris_saati_str, "%H:%M:%S")
 # 9 saat 15 dk ekle
 cikis_saati = giris_saati + timedelta(hours=9, minutes=15)
 
-# Şu anki zamandan fark
+# Şu anki saat
 simdi = datetime.now()
 fark = cikis_saati - simdi
 
 print("Giriş Zamanı :", giris_saati.time())
 print("Tahmini Çıkış Zamanı :", cikis_saati.time())
 print("Kalan Süre :", fark)
+
+driver.quit()
