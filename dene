@@ -1,0 +1,26 @@
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+
+url = "https://"
+
+response = requests.get(url)
+soup = BeautifulSoup(response.text, "html.parser")
+
+# HTML içinde giriş zamanı geçen hücreyi bul (örneğin "06:57:00" formatında)
+giris_hucre = soup.find("td", text=lambda t: t and ":" in t)  
+giris_saati_str = giris_hucre.get_text(strip=True)
+
+# String -> datetime
+giris_saati = datetime.strptime(giris_saati_str, "%H:%M:%S")
+
+# 9 saat 15 dk ekle
+cikis_saati = giris_saati + timedelta(hours=9, minutes=15)
+
+# Şu anki zamandan fark
+simdi = datetime.now()
+fark = cikis_saati - simdi
+
+print("Giriş Zamanı :", giris_saati.time())
+print("Tahmini Çıkış Zamanı :", cikis_saati.time())
+print("Kalan Süre :", fark)
