@@ -1,1 +1,1 @@
-pyinstaller --onefile --add-binary "chromedriver.exe;." giris_cikis.py
+pyinstaller --onefile --add-binary "C:\yol\chromedriver.exe;." giris_cikis.py
