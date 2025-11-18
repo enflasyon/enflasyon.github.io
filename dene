@@ -1,35 +1,29 @@
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from datetime import datetime, timedelta
-import time
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
 
-# Chrome driver'ı başlat
-options = webdriver.ChromeOptions()
-options.add_argument("--headless")  # görünmez çalıştırmak için (istersen çıkarabilirsin)
+options = Options()
+options.add_argument("--headless=new")
+options.add_argument("--disable-gpu")
+options.add_argument("--window-size=1920,1080")
+
 driver = webdriver.Chrome(options=options)
+driver.get("https://tei...")    # Rapor URL
 
-# Rapor URL'si
-url = ".Günlük%20Giris-Cikis%20Raporu"
-driver.get(url)
+wait = WebDriverWait(driver, 20)
 
-time.sleep(5)  # tablo yüklenmesi için bekle
+# 1) iframe'e geç
+iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+driver.switch_to.frame(iframe)
 
-# Tablo içinden giriş zamanı hücresini bul (örn: 06:57:00 formatı)
-giris_element = driver.find_element(By.XPATH, "//td[contains(text(), ':')]")
-giris_saati_str = giris_element.text.strip()
+# 2) giriş zamanını bul
+giris = wait.until(
+    EC.presence_of_element_located(
+        (By.XPATH, "(//td//div[contains(text(), ':')])[1]")
+    )
+)
 
-# String -> datetime
-giris_saati = datetime.strptime(giris_saati_str, "%H:%M:%S")
-
-# 9 saat 15 dk ekle
-cikis_saati = giris_saati + timedelta(hours=9, minutes=15)
-
-# Şu anki saat
-simdi = datetime.now()
-fark = cikis_saati - simdi
-
-print("Giriş Zamanı :", giris_saati.time())
-print("Tahmini Çıkış Zamanı :", cikis_saati.time())
-print("Kalan Süre :", fark)
-
-driver.quit()
+print("Giriş Zamanı:", giris.text)
