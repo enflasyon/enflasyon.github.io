@@ -1,117 +1,74 @@
-# ---------------------------------------------------------------------------
-# ANSYS Mechanical IronPython Script
-# Sadece "Frictional" contact'lara command snippet ekler.
-# Çalıştırıldığında kullanıcıdan radio button ile 0.06 veya 0.12 seçimi alır.
-# ---------------------------------------------------------------------------
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+import time
 
-clr.AddReference("System.Windows.Forms")
-clr.AddReference("System.Drawing")
-from System.Windows.Forms import Form, Label, RadioButton, Button, DialogResult
-from System.Drawing import Point, Size
+# -----------------------------
+#  Chrome ayarları
+# -----------------------------
+options = Options()
+options.add_argument("--start-maximized")
 
-# ------------------ Popup formu tanımla ------------------
-class ValueSelector(Form):
-    def __init__(self):
-        self.Text = "Friction Coefficient Seçimi"
-        self.ClientSize = Size(260, 130)
+driver = webdriver.Chrome(options=options)
 
-        lbl = Label()
-        lbl.Text = "Friction coefficient (µ) seçiniz:"
-        lbl.Location = Point(20, 15)
-        self.Controls.Add(lbl)
+# -----------------------------
+# 1) PDKS sayfasına giriş
+# -----------------------------
+url = "https://teisrv/.../PDKS"   # ← Buraya gerçek PDKS giriş URL'ini yaz
+driver.get(url)
 
-        # Radio butonlar
-        self.radio1 = RadioButton()
-        self.radio1.Text = "0.06"
-        self.radio1.Location = Point(40, 45)
-        self.Controls.Add(self.radio1)
+time.sleep(2)
 
-        self.radio2 = RadioButton()
-        self.radio2.Text = "0.12"
-        self.radio2.Location = Point(120, 45)
-        self.radio2.Checked = True
-        self.Controls.Add(self.radio2)
+# -----------------------------
+# 2) Login işlemi
+# -----------------------------
+# Kullanıcı adı
+username = driver.find_element(By.ID, "UserName")  # ID farklı olabilir → F12 ile kontrol et
+username.send_keys("KULLANICI_ADIN")
 
-        # OK butonu
-        ok_btn = Button()
-        ok_btn.Text = "Tamam"
-        ok_btn.Location = Point(50, 80)
-        ok_btn.DialogResult = DialogResult.OK
-        self.AcceptButton = ok_btn
-        self.Controls.Add(ok_btn)
+# Şifre
+password = driver.find_element(By.ID, "Password")
+password.send_keys("SIFREN")
 
-        # İptal butonu
-        cancel_btn = Button()
-        cancel_btn.Text = "İptal"
-        cancel_btn.Location = Point(140, 80)
-        cancel_btn.DialogResult = DialogResult.Cancel
-        self.CancelButton = cancel_btn
-        self.Controls.Add(cancel_btn)
+password.send_keys(Keys.ENTER)
+time.sleep(3)
 
-    def GetSelectedValue(self):
-        if self.radio1.Checked:
-            return "0.06"
-        elif self.radio2.Checked:
-            return "0.12"
-        else:
-            return None
+# -----------------------------
+# 3) Günlük Giriş-Çıkış Raporu sayfasına git
+# -----------------------------
+# Eğer menüden açılıyorsa tıklaman gereken butonu bulup tıklayacaksın:
+# driver.find_element(By.XPATH, "//*[@id='menu']/...").click()
 
-# ------------------ Formu göster ve kullanıcı seçimini al ------------------
-form = ValueSelector()
-result = form.ShowDialog()
+rapor_url = "https://teisrv/.../GunlukGirisCikis"  # ← Bu sayfanın direkt URL'i varsa buraya
+driver.get(rapor_url)
+time.sleep(2)
 
-if result != DialogResult.OK:
-    UI.DisplayMessageBox("İşlem iptal edildi.")
-else:
-    user_value = form.GetSelectedValue()
+# -----------------------------
+# 4) Tarihleri doldur
+# -----------------------------
+bas_tarih = driver.find_element(By.ID, "BasTar")
+bit_tarih = driver.find_element(By.ID, "BitTar")
 
-    # APDL şablonu
-    apdl_template = r"""
-! Automatically inserted by Python script
-! Contact Name: {name}
-! Contact ID: {cid}
+bas_tarih.clear()
+bit_tarih.clear()
 
-cid = {cid}
-mu = {mu}   ! kullanıcı tarafından seçilen değer
+bas_tarih.send_keys("18.11.2025")
+bit_tarih.send_keys("18.11.2025")
+bit_tarih.send_keys(Keys.ENTER)
 
-*cfopen,contact_{cid},txt
-*cfwrite,'Contact Name: {name}'
-*cfwrite,'Contact ID: ',cid
-*cfwrite,'User Value (mu): ',mu
-*cfclose
-"""
+time.sleep(3)
 
-    try:
-        sel = ExtAPI.DataModel.Tree.FirstActiveObject
-        if sel is None:
-            raise Exception("Lütfen bir Connection Group veya Connections öğesi seçin.")
+# -----------------------------
+# 5) Giriş zamanını bul
+# -----------------------------
+giris_zamani = driver.find_element(By.XPATH, "//table//tr[2]/td[4]").text
+print("Giriş Zamanı:", giris_zamani)
 
-        added_count = 0
-        skipped_count = 0
+# örnek çıktı → "07:02:00"
 
-        for child in sel.Children:
-            try:
-                if "ContactRegion" in child.GetType().Name:
-                    contact_type = child.ContactType
-
-                    if str(contact_type).lower() == "frictional":
-                        cid = child.ObjectId
-                        name = child.Name
-                        apdl_text = apdl_template.format(name=name, cid=cid, mu=user_value)
-
-                        cs = child.AddCommandSnippet()
-                        cs.Name = "AutoSnippet_{0}".format(name)
-                        cs.AppendText(apdl_text)
-                        added_count += 1
-                    else:
-                        skipped_count += 1
-
-            except Exception as e_child:
-                mechanical._log.info("Atlandı: {0} ({1})".format(getattr(child, "Name", "<no name>"), str(e_child)))
-
-        ExtAPI.DataModel.Tree.Refresh()
-        UI.DisplayMessageBox("{0} frictional contact'a snippet eklendi.\n{1} contact atlandı.\nSeçilen µ = {2}".format(
-            added_count, skipped_count, user_value))
-
-    except Exception as e:
-        UI.DisplayMessageBox("Hata: {0}".format(str(e)))
+# -----------------------------
+# 6) İşlem bittiğinde tarayıcıyı kapat
+# -----------------------------
+# driver.quit()
