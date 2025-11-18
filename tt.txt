@@ -1,3 +1,5 @@
+import tkinter as tk
+from tkinter import messagebox
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -5,47 +7,71 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from datetime import datetime, timedelta
 
-options = Options()
-options.add_argument("--headless=new")
-driver = webdriver.Chrome(options=options)
-driver.get("https://tei...")
+def veri_cek():
+    try:
+        options = Options()
+        options.add_argument("--headless=new")
+        driver = webdriver.Chrome(options=options)
+        driver.get(url_entry.get())
 
-wait = WebDriverWait(driver, 30)
+        wait = WebDriverWait(driver, 30)
 
-# iframe geçiş
-wait.until(EC.frame_to_be_available_and_switch_to_it((By.TAG_NAME, "iframe")))
+        # iframe geçiş
+        wait.until(EC.frame_to_be_available_and_switch_to_it((By.TAG_NAME, "iframe")))
 
-# giriş saati çek
-giris_elem = wait.until(
-    EC.presence_of_element_located(
-        (By.XPATH, "(//td//div[contains(text(), ':')])[1]")
-    )
-)
-giris_saat_str = giris_elem.text.strip()  # Örn: "07:00:00"
-print("Giriş Zamanı:", giris_saat_str)
+        # giriş saati çek
+        giris_elem = wait.until(
+            EC.presence_of_element_located(
+                (By.XPATH, "(//td//div[contains(text(), ':')])[1]")
+            )
+        )
+        giris_saat_str = giris_elem.text.strip()  # Örn: "07:00:00"
 
-# Saat, dakika, saniye parse et
-parts = giris_saat_str.split(":")
-hour = int(parts[0])
-minute = int(parts[1])
-second = int(parts[2]) if len(parts) > 2 else 0
+        # Saat, dakika, saniye parse et
+        parts = giris_saat_str.split(":")
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) > 2 else 0
 
-# Bugünün tarihi ile datetime objesi oluştur
-simdi_tarih = datetime.now()
-giris_saat = simdi_tarih.replace(hour=hour, minute=minute, second=second, microsecond=0)
+        # Bugünün tarihi ile datetime objesi oluştur
+        simdi_tarih = datetime.now()
+        giris_saat = simdi_tarih.replace(hour=hour, minute=minute, second=second, microsecond=0)
 
-# 9,5 saat ekle
-cikis_saat = giris_saat + timedelta(hours=9, minutes=30)
-print("Çıkış Zamanı (Tahmini):", cikis_saat.strftime("%H:%M:%S"))
+        # 9,5 saat ekle
+        cikis_saat = giris_saat + timedelta(hours=9, minutes=30)
 
-# Kalan süre
-kalan = cikis_saat - simdi_tarih
-if kalan.total_seconds() > 0:
-    # Sadece saat:dakika:saniye formatı
-    kalan_str = str(kalan).split(".")[0]
-else:
-    kalan_str = "Zaman doldu"
+        # Kalan süre
+        kalan = cikis_saat - simdi_tarih
+        if kalan.total_seconds() > 0:
+            kalan_str = str(kalan).split(".")[0]
+        else:
+            kalan_str = "Zaman doldu"
 
-print("Kalan Süre:", kalan_str)
+        # GUI’ye yazdır
+        giris_label.config(text=f"Giriş Zamanı: {giris_saat.strftime('%H:%M:%S')}")
+        cikis_label.config(text=f"Çıkış Zamanı: {cikis_saat.strftime('%H:%M:%S')}")
+        kalan_label.config(text=f"Kalan Süre: {kalan_str}")
 
-driver.quit()
+        driver.quit()
+    except Exception as e:
+        messagebox.showerror("Hata", f"Veri çekilemedi: {e}")
+
+# Tkinter GUI
+root = tk.Tk()
+root.title("Giriş/Çıkış Saat Hesaplayıcı")
+
+tk.Label(root, text="Giriş-Çıkış Rapor URL:").pack(pady=5)
+url_entry = tk.Entry(root, width=50)
+url_entry.pack(pady=5)
+url_entry.insert(0, "https://tei...")  # Varsayılan URL
+
+tk.Button(root, text="Veriyi Çek", command=veri_cek).pack(pady=10)
+
+giris_label = tk.Label(root, text="Giriş Zamanı: -")
+giris_label.pack(pady=5)
+cikis_label = tk.Label(root, text="Çıkış Zamanı: -")
+cikis_label.pack(pady=5)
+kalan_label = tk.Label(root, text="Kalan Süre: -")
+kalan_label.pack(pady=5)
+
+root.mainloop()
