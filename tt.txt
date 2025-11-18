@@ -1,37 +1,18 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-import time
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-# Chrome ayarları
-options = Options()
-options.add_argument("--start-maximized")
+driver = webdriver.Chrome()
+driver.get("https://tei...")  # Rapor URL
 
-driver = webdriver.Chrome(options=options)
+wait = WebDriverWait(driver, 20)
 
-# 1) Günlük Giriş-Çıkış raporu sayfasını aç
-driver.get("https://tei/.../GunlukGirisCikis")   # ← Buraya gerçek PDKS URL'sini yaz
+# Saat formatındaki hücreyi bekle
+giris = wait.until(
+    EC.presence_of_element_located(
+        (By.XPATH, "//td//div[contains(text(), ':')]")
+    )
+)
 
-time.sleep(2)
-
-# 2) Tarih alanlarını doldur (ID’ler örnektir — F12 ile kontrol ederek düzeltebiliriz)
-bas_tarih = driver.find_element(By.ID, "BasTar")
-bit_tarih = driver.find_element(By.ID, "BitTar")
-
-bas_tarih.clear()
-bit_tarih.clear()
-
-bas_tarih.send_keys("18.11.2025")
-bit_tarih.send_keys("18.11.2025")
-
-time.sleep(2)
-
-# 3) Tablo yüklendikten sonra Giriş Zamanı değerini oku
-# 1. satır → tr[2]
-# "Giriş Zamanı" sütunu → td[4] (görsele göre)
-giris_zamani = driver.find_element(By.XPATH, "//table//tr[2]/td[4]").text
-
-print("Giriş Zamanı:", giris_zamani)
-# Çıktı örnek: 07:02:00
-
-# driver.quit()
+print("Giriş Zamanı:", giris.text)
