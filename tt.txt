@@ -1,53 +1,20 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 import time
 
-# -----------------------------
-#  Chrome ayarları
-# -----------------------------
+# Chrome ayarları
 options = Options()
 options.add_argument("--start-maximized")
 
 driver = webdriver.Chrome(options=options)
 
-# -----------------------------
-# 1) PDKS sayfasına giriş
-# -----------------------------
-url = "https://teisrv/.../PDKS"   # ← Buraya gerçek PDKS giriş URL'ini yaz
-driver.get(url)
+# 1) Günlük Giriş-Çıkış raporu sayfasını aç
+driver.get("https://tei/.../GunlukGirisCikis")   # ← Buraya gerçek PDKS URL'sini yaz
 
 time.sleep(2)
 
-# -----------------------------
-# 2) Login işlemi
-# -----------------------------
-# Kullanıcı adı
-username = driver.find_element(By.ID, "UserName")  # ID farklı olabilir → F12 ile kontrol et
-username.send_keys("KULLANICI_ADIN")
-
-# Şifre
-password = driver.find_element(By.ID, "Password")
-password.send_keys("SIFREN")
-
-password.send_keys(Keys.ENTER)
-time.sleep(3)
-
-# -----------------------------
-# 3) Günlük Giriş-Çıkış Raporu sayfasına git
-# -----------------------------
-# Eğer menüden açılıyorsa tıklaman gereken butonu bulup tıklayacaksın:
-# driver.find_element(By.XPATH, "//*[@id='menu']/...").click()
-
-rapor_url = "https://teisrv/.../GunlukGirisCikis"  # ← Bu sayfanın direkt URL'i varsa buraya
-driver.get(rapor_url)
-time.sleep(2)
-
-# -----------------------------
-# 4) Tarihleri doldur
-# -----------------------------
+# 2) Tarih alanlarını doldur (ID’ler örnektir — F12 ile kontrol ederek düzeltebiliriz)
 bas_tarih = driver.find_element(By.ID, "BasTar")
 bit_tarih = driver.find_element(By.ID, "BitTar")
 
@@ -56,19 +23,15 @@ bit_tarih.clear()
 
 bas_tarih.send_keys("18.11.2025")
 bit_tarih.send_keys("18.11.2025")
-bit_tarih.send_keys(Keys.ENTER)
 
-time.sleep(3)
+time.sleep(2)
 
-# -----------------------------
-# 5) Giriş zamanını bul
-# -----------------------------
+# 3) Tablo yüklendikten sonra Giriş Zamanı değerini oku
+# 1. satır → tr[2]
+# "Giriş Zamanı" sütunu → td[4] (görsele göre)
 giris_zamani = driver.find_element(By.XPATH, "//table//tr[2]/td[4]").text
+
 print("Giriş Zamanı:", giris_zamani)
+# Çıktı örnek: 07:02:00
 
-# örnek çıktı → "07:02:00"
-
-# -----------------------------
-# 6) İşlem bittiğinde tarayıcıyı kapat
-# -----------------------------
 # driver.quit()
