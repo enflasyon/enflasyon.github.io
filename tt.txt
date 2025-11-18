@@ -24,11 +24,15 @@ giris_elem = wait.until(
 giris_saat_str = giris_elem.text.strip()  # Örn: "07:00:00"
 print("Giriş Zamanı:", giris_saat_str)
 
-# Giriş saatini datetime objesine çevir (HH:MM:SS format)
+# Saat, dakika, saniye parse et
+parts = giris_saat_str.split(":")
+hour = int(parts[0])
+minute = int(parts[1])
+second = int(parts[2]) if len(parts) > 2 else 0
+
+# Bugünün tarihi ile datetime objesi oluştur
 simdi_tarih = datetime.now()
-giris_saat = datetime.strptime(giris_saat_str, "%H:%M:%S")
-# Bugünün tarihi ile saat birleştirme
-giris_saat = giris_saat.replace(year=simdi_tarih.year, month=simdi_tarih.month, day=simdi_tarih.day)
+giris_saat = simdi_tarih.replace(hour=hour, minute=minute, second=second, microsecond=0)
 
 # 9,5 saat ekle
 cikis_saat = giris_saat + timedelta(hours=9, minutes=30)
@@ -37,7 +41,8 @@ print("Çıkış Zamanı (Tahmini):", cikis_saat.strftime("%H:%M:%S"))
 # Kalan süre
 kalan = cikis_saat - simdi_tarih
 if kalan.total_seconds() > 0:
-    kalan_str = str(kalan).split(".")[0]  # Saniye hassasiyeti ile
+    # Sadece saat:dakika:saniye formatı
+    kalan_str = str(kalan).split(".")[0]
 else:
     kalan_str = "Zaman doldu"
 
