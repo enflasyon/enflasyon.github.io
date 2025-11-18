@@ -24,17 +24,14 @@ giris_elem = wait.until(
 giris_saat_str = giris_elem.text.strip()
 print("Giriş Zamanı:", giris_saat_str)
 
-# Giriş saatini güvenli şekilde datetime objesine çevir
-try:
-    # 24 saat format
-    giris_saat = datetime.strptime(giris_saat_str, "%H:%M")
-except ValueError:
-    # 8:15 gibi tek haneli saat için
-    giris_saat = datetime.strptime(giris_saat_str, "%-H:%M")
+# Saat ve dakikayı manuel ayır
+parts = giris_saat_str.split(":")
+hour = int(parts[0])
+minute = int(parts[1])
 
-# Bugünün tarihi ile saat birleştirme
+# Bugünün tarihi ile saat oluştur
 simdi_tarih = datetime.now()
-giris_saat = giris_saat.replace(year=simdi_tarih.year, month=simdi_tarih.month, day=simdi_tarih.day)
+giris_saat = simdi_tarih.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 # 9,5 saat ekle
 cikis_saat = giris_saat + timedelta(hours=9, minutes=30)
