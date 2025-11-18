@@ -2,21 +2,55 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from datetime import datetime, timedelta
 
-driver = webdriver.Chrome()
-driver.get("https://tei...")    # Günlük giriş-çıkış raporu URL'si
+options = Options()
+options.add_argument("--headless=new")
+options.add_argument("--disable-gpu")
+options.add_argument("--window-size=1920,1080")
+options.add_argument("--start-maximized")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_argument("--disable-web-security")
+options.add_argument("--allow-running-insecure-content")
 
-wait = WebDriverWait(driver, 20)
+driver = webdriver.Chrome(options=options)
+driver.get("https://tei...")  # Günlük giriş-çıkış raporu URL
 
-# 1) Sayfadaki ilk iframe'e geç
-iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
-driver.switch_to.frame(iframe)
+wait = WebDriverWait(driver, 30)
 
-# 2) Tablo yüklenene kadar bekle ve giriş saatini al
-giris = wait.until(
+# 1) İframe bul ve geç
+wait.until(EC.frame_to_be_available_and_switch_to_it((By.TAG_NAME, "iframe")))
+
+# 2) Giriş saatini bul
+giris_elem = wait.until(
     EC.presence_of_element_located(
         (By.XPATH, "(//td//div[contains(text(), ':')])[1]")
     )
 )
 
-print("Giriş Zamanı:", giris.text)
+giris_saat_str = giris_elem.text  # Örn: "08:15"
+print("Giriş Zamanı:", giris_saat_str)
+
+# 3) Giriş saatini datetime objesine çevir
+giris_saat = datetime.strptime(giris_saat_str, "%H:%M")
+
+# 4) 9,5 saat ekle
+cikis_saat = giris_saat + timedelta(hours=9, minutes=30)
+print("Çıkış Zamanı (Tahmini):", cikis_saat.strftime("%H:%M"))
+
+# 5) Kalan süreyi hesapla
+simdi = datetime.now().replace(year=giris_saat.year, month=giris_saat.month, day=giris_saat.day)
+kalan = cikis_saat - simdi
+
+# Eğer süre geçmişse 0 göster
+if kalan.total_seconds() < 0:
+    kalan_str = "Zaman doldu"
+else:
+    kalan_str = str(kalan).split(".")[0]  # Saniye hassasiyeti olmadan
+
+print("Kalan Süre:", kalan_str)
+
+driver.quit()
