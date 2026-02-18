@@ -1,0 +1,8 @@
+wmic path SoftwareLicensingService get OA3xOriginalProductKey
+
+cmd
+
+
+poweshell
+
+(Get-WmiObject -query 'select * from SoftwareLicensingService').OA3xOriginalProductKey
