@@ -43,7 +43,7 @@
     .title p { margin: 9px 0 0; color: var(--muted); line-height: 1.45; }
     .controls {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       align-items: center;
       background: var(--card);
       border: 1px solid var(--border);
@@ -52,6 +52,33 @@
       box-shadow: 0 18px 45px rgba(0,0,0,.18);
       backdrop-filter: blur(12px);
       flex-wrap: wrap;
+    }
+    .year-box {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .radio-box {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .radio-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      cursor: pointer;
+      user-select: none;
+      font-size: 14px;
+    }
+    .radio-pill input {
+      width: auto;
+      accent-color: #38bdf8;
     }
     input, button {
       border: 1px solid var(--border);
@@ -131,6 +158,7 @@
     @media (max-width: 860px) {
       body { padding: 16px; }
       .top, .grid { display: grid; grid-template-columns: 1fr; }
+      .controls { align-items: flex-start; }
     }
   </style>
 </head>
@@ -138,12 +166,27 @@
   <main class="app">
     <section class="top">
       <div class="title">
-        <h1>TCMB TÜFE Enflasyon Takip</h1>
-        <p>GitHub Pages arayüzü + Cloudflare Worker proxy ile TCMB verisini CORS hatası olmadan çeker.</p>
+        <h1>Enflasyon Takip</h1>
+        <p>TCMB verisinden 6 aylık enflasyon hesabı</p>
       </div>
+
       <div class="controls">
-        <label for="year">Yıl</label>
-        <input id="year" type="number" value="2026" min="2003" max="2100">
+        <div class="year-box">
+          <label for="year">Yıl</label>
+          <input id="year" type="number" value="2026" min="2003" max="2100">
+        </div>
+
+        <div class="radio-box" aria-label="Dönem seçimi">
+          <label class="radio-pill">
+            <input type="radio" name="half" value="first" checked>
+            İlk 6 Ay
+          </label>
+          <label class="radio-pill">
+            <input type="radio" name="half" value="last">
+            Son 6 Ay
+          </label>
+        </div>
+
         <button onclick="loadData()">Güncelle</button>
       </div>
     </section>
@@ -156,8 +199,8 @@
 
         <div class="stat">
           <div class="mini">
-            <span class="label">Veri ayı</span>
-            <b id="latestMonth">--</b>
+            <span class="label">Seçilen dönem</span>
+            <b id="selectedHalf">İlk 6 Ay</b>
           </div>
           <div class="mini">
             <span class="label">Ay sayısı</span>
@@ -181,27 +224,27 @@
           <tbody id="tableBody"></tbody>
         </table>
         <div class="hint">
-          Son yayımlanan veri ayı 1-6 arasındaysa Ocak–son ay; 7-12 arasındaysa Temmuz–son ay hesaplanır.
-          Kümülatif hesap: <b>(1+ay1/100) × (1+ay2/100) × ... − 1</b>.
+          Seçime göre hesaplar: <b>İlk 6 Ay = Ocak-Haziran</b>, <b>Son 6 Ay = Temmuz-Aralık</b>.
+          Henüz yayımlanmayan aylar hesaba katılmaz.
         </div>
       </div>
     </section>
   </main>
 
 <script>
-/*
-  1) Cloudflare Worker kur.
-  2) Aşağıdaki WORKER_URL değerini kendi Worker adresinle değiştir.
-     Örnek: "https://tcmb-tufe-proxy.samet.workers.dev"
-*/
-const WORKER_URL = "https://tcmb-tufe-proxy.elhamrali.workers.dev/";
+const WORKER_URL = "https://tcmb-tufe-proxy.elhamrali.workers.dev";
 
 let chart;
+let lastApiData = null;
 
 const monthNames = {
   1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan", 5: "Mayıs", 6: "Haziran",
   7: "Temmuz", 8: "Ağustos", 9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
 };
+
+function selectedHalfMode() {
+  return document.querySelector('input[name="half"]:checked').value;
+}
 
 async function loadData() {
   const year = Number(document.getElementById("year").value || 2026);
@@ -210,15 +253,12 @@ async function loadData() {
   status.className = "status";
   status.textContent = "TCMB verisi alınıyor...";
 
-  if (WORKER_URL.includes("BURAYA_")) {
-    setError("Önce index.html içindeki WORKER_URL değerini kendi Cloudflare Worker adresinle değiştir.");
-    return;
-  }
-
   try {
     const res = await fetch(`${WORKER_URL}/?year=${year}`, { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
+
     const data = await res.json();
+    lastApiData = data;
 
     draw(data);
     status.innerHTML = `Kaynak: <a href="${data.source}" target="_blank" rel="noopener">TCMB TÜFE</a> · Son güncelleme: ${new Date().toLocaleString("tr-TR")}`;
@@ -228,27 +268,51 @@ async function loadData() {
   }
 }
 
-function setError(message) {
-  document.getElementById("value").textContent = "--%";
-  document.getElementById("period").textContent = "Bağlantı yok";
-  document.getElementById("latestMonth").textContent = "--";
-  document.getElementById("monthCount").textContent = "--";
-  document.getElementById("tableBody").innerHTML = "";
-  if (chart) chart.destroy();
+function recalculateByRadio(data) {
+  const mode = selectedHalfMode();
+  const startMonth = mode === "first" ? 1 : 7;
+  const endMonth = mode === "first" ? 6 : 12;
 
-  const status = document.getElementById("status");
-  status.className = "status error";
-  status.textContent = message;
+  const allRows = data.allRows || data.yearRows || data.rows || [];
+
+  // Worker sadece hesaplanan rows döndürüyorsa eski veri yetersiz kalabilir.
+  // Bu nedenle bu index, aşağıdaki güncel worker.js ile birlikte kullanılmalı.
+  const selectedRows = allRows
+    .filter(r => r.month >= startMonth && r.month <= endMonth)
+    .sort((a, b) => a.month - b.month);
+
+  let factor = 1;
+  selectedRows.forEach(r => {
+    factor *= (1 + Number(r.monthly) / 100);
+  });
+
+  const cumulativeInflation = selectedRows.length ? (factor - 1) * 100 : 0;
+
+  const actualEndMonth = selectedRows.length ? selectedRows[selectedRows.length - 1].month : endMonth;
+
+  return {
+    ...data,
+    rows: selectedRows,
+    startMonth,
+    latestMonth: actualEndMonth,
+    cumulativeInflation,
+    calculationPeriod: selectedRows.length
+      ? `${monthNames[startMonth]} - ${monthNames[actualEndMonth]}`
+      : "Bu dönem için veri bulunamadı"
+  };
 }
 
-function draw(data) {
+function draw(apiData) {
+  const data = recalculateByRadio(apiData);
   const rows = data.rows || [];
+  const mode = selectedHalfMode();
+
+  document.getElementById("selectedHalf").textContent = mode === "first" ? "İlk 6 Ay" : "Son 6 Ay";
 
   document.getElementById("value").textContent =
     rows.length ? Number(data.cumulativeInflation).toFixed(2) + "%" : "--%";
 
   document.getElementById("period").textContent = data.calculationPeriod || "Veri bulunamadı";
-  document.getElementById("latestMonth").textContent = data.latestMonth ? monthNames[data.latestMonth] : "--";
   document.getElementById("monthCount").textContent = rows.length || "--";
 
   document.getElementById("tableBody").innerHTML = rows.map(r => `
@@ -283,7 +347,7 @@ function draw(data) {
         legend: { labels: { color: "#e5e7eb" } },
         tooltip: {
           callbacks: {
-            label: ctx => ` Aylık TÜFE: ${ctx.parsed.y.toFixed(2)}%`
+            label: ctx => ` Aylık TÜFE: ${Number(ctx.parsed.y).toFixed(2)}%`
           }
         }
       },
@@ -303,6 +367,27 @@ function draw(data) {
     }
   });
 }
+
+function setError(message) {
+  document.getElementById("value").textContent = "--%";
+  document.getElementById("period").textContent = "Bağlantı yok";
+  document.getElementById("selectedHalf").textContent = selectedHalfMode() === "first" ? "İlk 6 Ay" : "Son 6 Ay";
+  document.getElementById("monthCount").textContent = "--";
+  document.getElementById("tableBody").innerHTML = "";
+  if (chart) chart.destroy();
+
+  const status = document.getElementById("status");
+  status.className = "status error";
+  status.textContent = message;
+}
+
+// Radio değiştirince Güncelle'ye basmadan ekranda mevcut veri varsa yeniden hesaplasın.
+// İstersen bunu kaldırabilirsin; ama kullanım daha rahat olur.
+document.querySelectorAll('input[name="half"]').forEach(radio => {
+  radio.addEventListener("change", () => {
+    if (lastApiData) draw(lastApiData);
+  });
+});
 
 loadData();
 </script>
