@@ -1,214 +1,310 @@
-<!DOCTYPE html>
-<html lang="en">
-
+<!doctype html>
+<html lang="tr">
 <head>
-  <meta charset="utf-8">
-  <meta content="width=device-width, initial-scale=1.0" name="viewport">
-
-  <title>Enflasyon</title>
-  <meta content="" name="description">
-  <meta content="" name="keywords">
-
-  <!-- Favicons -->
-  <link href="assets/img/favicon.png" rel="icon">
-  <link href="assets/img/apple-touch-icon.png" rel="apple-touch-icon">
-
-  <!-- Google Fonts -->
-  <link href="https://fonts.gstatic.com" rel="preconnect">
-  <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,600,600i,700,700i|Nunito:300,300i,400,400i,600,600i,700,700i|Poppins:300,300i,400,400i,500,500i,600,600i,700,700i" rel="stylesheet">
-
-  <!-- Vendor CSS Files -->
-  <link href="assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="assets/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
-  <link href="assets/vendor/boxicons/css/boxicons.min.css" rel="stylesheet">
-  <link href="assets/vendor/quill/quill.snow.css" rel="stylesheet">
-  <link href="assets/vendor/quill/quill.bubble.css" rel="stylesheet">
-  <link href="assets/vendor/remixicon/remixicon.css" rel="stylesheet">
-  <link href="assets/vendor/simple-datatables/style.css" rel="stylesheet">
-
-  <!-- Template Main CSS File -->
-  <link href="assets/css/style.css" rel="stylesheet">
-
-
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TCMB TÜFE Enflasyon Takip</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: rgba(255,255,255,.085);
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --border: rgba(255,255,255,.14);
+      --danger: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(14,165,233,.42), transparent 32%),
+        radial-gradient(circle at 82% 8%, rgba(34,197,94,.22), transparent 28%),
+        linear-gradient(135deg, #020617, #0f172a 55%, #111827);
+      color: var(--text);
+      padding: 28px;
+    }
+    .app { width: min(1120px, 100%); margin: 0 auto; }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: clamp(24px, 4vw, 38px);
+      letter-spacing: -1px;
+    }
+    .title p { margin: 9px 0 0; color: var(--muted); line-height: 1.45; }
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 12px;
+      box-shadow: 0 18px 45px rgba(0,0,0,.18);
+      backdrop-filter: blur(12px);
+      flex-wrap: wrap;
+    }
+    input, button {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 13px;
+      font-size: 15px;
+      outline: none;
+    }
+    input { background: rgba(255,255,255,.08); color: var(--text); width: 98px; }
+    button {
+      background: linear-gradient(135deg, #0284c7, #0ea5e9);
+      color: white;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 355px 1fr;
+      gap: 18px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 22px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.24);
+      backdrop-filter: blur(12px);
+    }
+    .label { color: var(--muted); font-size: 14px; letter-spacing: .2px; }
+    .big {
+      font-size: clamp(48px, 8vw, 72px);
+      font-weight: 900;
+      margin: 9px 0;
+      letter-spacing: -3px;
+      line-height: 1;
+    }
+    .period { color: var(--accent); font-weight: 800; margin-bottom: 12px; }
+    .stat {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .mini {
+      background: rgba(255,255,255,.065);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px;
+    }
+    .mini b { display: block; margin-top: 6px; font-size: 18px; }
+    .status {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .status.error { color: var(--danger); }
+    a { color: #7dd3fc; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: #cbd5e1; font-weight: 700; }
+    .hint {
+      margin-top: 16px;
+      padding: 14px;
+      background: rgba(14,165,233,.1);
+      border: 1px solid rgba(125,211,252,.25);
+      border-radius: 16px;
+      color: #bae6fd;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    @media (max-width: 860px) {
+      body { padding: 16px; }
+      .top, .grid { display: grid; grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
-
 <body>
+  <main class="app">
+    <section class="top">
+      <div class="title">
+        <h1>TCMB TÜFE Enflasyon Takip</h1>
+        <p>GitHub Pages arayüzü + Cloudflare Worker proxy ile TCMB verisini CORS hatası olmadan çeker.</p>
+      </div>
+      <div class="controls">
+        <label for="year">Yıl</label>
+        <input id="year" type="number" value="2026" min="2003" max="2100">
+        <button onclick="loadData()">Güncelle</button>
+      </div>
+    </section>
 
-  <!-- ======= Header ======= -->
-  <header id="header" class="header fixed-top d-flex align-items-center">
+    <section class="grid">
+      <div class="card">
+        <div class="label">Kümülatif Enflasyon</div>
+        <div id="value" class="big">--%</div>
+        <div id="period" class="period">Veri bekleniyor</div>
 
-    <div class="d-flex align-items-center justify-content-between">
-      <a href="index.html" class="logo d-flex align-items-center">
-        <img src="assets/img/logo.png" alt="">
-        <span class="d-none d-lg-block">Enflasyon Takip</span>
-      </a>
-      
-    </div><!-- End Logo -->
-
-    
-
-
-
-  </header><!-- End Header -->
-
- 
-
-  <main id="main" class="main">
-
-    <div class="pagetitle">
-      <h1>Enflasyon Takip</h1>
-      <nav>
-        <ol class="breadcrumb">
-          <li class="breadcrumb-item"><a href="">Data Source</a></li>
-          <li class="breadcrumb-item active">TÜİK</li>
-        </ol>
-      </nav>
-    </div><!-- End Page Title -->
-
-    <section class="section dashboard">
-      <div class="row">
-
-        <!-- Left side columns -->
-        <div class="col-lg-8">
-          <div class="row">
-
-
-
-            <!-- Revenue Card -->
-            <div class="col-xxl-4 col-md-6">
-              <div class="card info-card revenue-card">
-
-                <div class="filter">
-                  <a class="icon" href="#" data-bs-toggle="dropdown"><i class="bi bi-three-dots"></i></a>
-
-                </div>
-
-                <div class="card-body">
-                  <h5 class="card-title">2025 Yılı ilk 6 Aylık Enflasyon<span> </span></h5>
-
-                  <div class="d-flex align-items-center">
-                    <div class="card-icon rounded-circle d-flex align-items-center justify-content-center">
-                      <i class="bi bi-currency-dollar"></i>
-                    </div>
-                    <div class="ps-3">
-                      <h6>16.67%</h6>
-                      <span class="text-success small pt-1 fw-bold">15.75%</span> <span class="text-muted small pt-2 ps-1">2024 son 6 ayı</span>
-
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div><!-- End Revenue Card -->
-
-
-
-            <!-- Reports -->
-            <div class="col-12">
-              <div class="card">
-
-                <div class="filter">
-                  <a class="icon" href="#" data-bs-toggle="dropdown"><i class="bi bi-three-dots"></i></a>
-
-                </div>
-
-                <div class="card-body">
-                  <h5 class="card-title">Enflasyon <span>/ TÜFE (Aylık % Değişim)</span></h5>
-
-                  <!-- Line Chart -->
-                  <div id="reportsChart"></div>
-
-                  <script>
-                    document.addEventListener("DOMContentLoaded", () => {
-                      new ApexCharts(document.querySelector("#reportsChart"), {
-                        series: [{
-                          name: '2024',
-                          data: [6.7,4.53,3.16,3.18,3.37,1.64,3.23,2.47,2.97,2.88,2.24,1.03],
-                        }],
-                        series: [{
-                          name: '2025',
-                          data: [5.03,2.27,2.46,3,1.53,1.37],
-                        }],
-                        chart: {
-                          height: 350,
-                          type: 'area',
-                          toolbar: {
-                            show: false
-                          },
-                        },
-                        markers: {
-                          size: 4
-                        },
-                        colors: ['#4154f1', '#2eca6a', '#ff771d', '#ff0000'],
-                        fill: {
-                          type: "gradient",
-                          gradient: {
-                            shadeIntensity: 1,
-                            opacityFrom: 0.3,
-                            opacityTo: 0.4,
-                            stops: [0, 90, 100]
-                          }
-                        },
-                        dataLabels: {
-                          enabled: false
-                        },
-                        stroke: {
-                          curve: 'smooth',
-                          width: 2
-                        },
-                        xaxis: {
-                          categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct','Nov','Dec'],
-                        }
-                      }).render();
-                    });
-                  </script>
-                  <!-- End Line Chart -->
-
-                </div>
-
-              </div>
-            </div><!-- End Reports -->
-
- 
-
-
-
+        <div class="stat">
+          <div class="mini">
+            <span class="label">Veri ayı</span>
+            <b id="latestMonth">--</b>
           </div>
-        </div><!-- End Left side columns -->
+          <div class="mini">
+            <span class="label">Ay sayısı</span>
+            <b id="monthCount">--</b>
+          </div>
+        </div>
 
-        <!-- Right side columns -->
-        <div class="col-lg-4">
+        <div id="status" class="status">Veriler yükleniyor...</div>
+      </div>
 
+      <div class="card">
+        <canvas id="chart" height="135"></canvas>
+        <table>
+          <thead>
+            <tr>
+              <th>Dönem</th>
+              <th>Aylık %</th>
+              <th>Yıllık %</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div class="hint">
+          Son yayımlanan veri ayı 1-6 arasındaysa Ocak–son ay; 7-12 arasındaysa Temmuz–son ay hesaplanır.
+          Kümülatif hesap: <b>(1+ay1/100) × (1+ay2/100) × ... − 1</b>.
+        </div>
+      </div>
+    </section>
+  </main>
 
+<script>
+/*
+  1) Cloudflare Worker kur.
+  2) Aşağıdaki WORKER_URL değerini kendi Worker adresinle değiştir.
+     Örnek: "https://tcmb-tufe-proxy.samet.workers.dev"
+*/
+const WORKER_URL = "https://tcmb-tufe-proxy.elhamrali.workers.dev/";
 
-  </main><!-- End #main -->
+let chart;
 
-  <!-- ======= Footer ======= -->
-  <footer id="footer" class="footer">
-    <div class="copyright">
-      &copy;  <strong><span>Copyright</span></strong>. All Rights Reserved
-    </div>
-    <div class="credits">
-      Designed by <a href="">34</a>
-      <script id="_wauisi">var _wau = _wau || []; _wau.push(["dynamic", "4bnftydaqa", "isi", "c4302bffffff", "big"]);</script><script async src="//waust.at/d.js"></script>
-    </div>
-  </footer><!-- End Footer -->
+const monthNames = {
+  1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan", 5: "Mayıs", 6: "Haziran",
+  7: "Temmuz", 8: "Ağustos", 9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
+};
 
-  <a href="#" class="back-to-top d-flex align-items-center justify-content-center"><i class="bi bi-arrow-up-short"></i></a>
+async function loadData() {
+  const year = Number(document.getElementById("year").value || 2026);
+  const status = document.getElementById("status");
 
-  <!-- Vendor JS Files -->
-  <script src="assets/vendor/apexcharts/apexcharts.min.js"></script>
-  <script src="assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-  <script src="assets/vendor/chart.js/chart.min.js"></script>
-  <script src="assets/vendor/echarts/echarts.min.js"></script>
-  <script src="assets/vendor/quill/quill.min.js"></script>
-  <script src="assets/vendor/simple-datatables/simple-datatables.js"></script>
-  <script src="assets/vendor/tinymce/tinymce.min.js"></script>
-  <script src="assets/vendor/php-email-form/validate.js"></script>
+  status.className = "status";
+  status.textContent = "TCMB verisi alınıyor...";
 
-  <!-- Template Main JS File -->
-  <script src="assets/js/main.js"></script>
+  if (WORKER_URL.includes("BURAYA_")) {
+    setError("Önce index.html içindeki WORKER_URL değerini kendi Cloudflare Worker adresinle değiştir.");
+    return;
+  }
 
+  try {
+    const res = await fetch(`${WORKER_URL}/?year=${year}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+
+    draw(data);
+    status.innerHTML = `Kaynak: <a href="${data.source}" target="_blank" rel="noopener">TCMB TÜFE</a> · Son güncelleme: ${new Date().toLocaleString("tr-TR")}`;
+  } catch (err) {
+    console.error(err);
+    setError("Veri alınamadı. Worker URL doğru mu ve Cloudflare Worker yayında mı kontrol et.");
+  }
+}
+
+function setError(message) {
+  document.getElementById("value").textContent = "--%";
+  document.getElementById("period").textContent = "Bağlantı yok";
+  document.getElementById("latestMonth").textContent = "--";
+  document.getElementById("monthCount").textContent = "--";
+  document.getElementById("tableBody").innerHTML = "";
+  if (chart) chart.destroy();
+
+  const status = document.getElementById("status");
+  status.className = "status error";
+  status.textContent = message;
+}
+
+function draw(data) {
+  const rows = data.rows || [];
+
+  document.getElementById("value").textContent =
+    rows.length ? Number(data.cumulativeInflation).toFixed(2) + "%" : "--%";
+
+  document.getElementById("period").textContent = data.calculationPeriod || "Veri bulunamadı";
+  document.getElementById("latestMonth").textContent = data.latestMonth ? monthNames[data.latestMonth] : "--";
+  document.getElementById("monthCount").textContent = rows.length || "--";
+
+  document.getElementById("tableBody").innerHTML = rows.map(r => `
+    <tr>
+      <td>${monthNames[r.month]}</td>
+      <td>${Number(r.monthly).toFixed(2)}</td>
+      <td>${Number(r.annual).toFixed(2)}</td>
+    </tr>
+  `).join("");
+
+  const labels = rows.map(r => monthNames[r.month]);
+  const values = rows.map(r => r.monthly);
+
+  const ctx = document.getElementById("chart");
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Aylık TÜFE %",
+        data: values,
+        tension: 0.35,
+        fill: true,
+        pointRadius: 5
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#e5e7eb" } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` Aylık TÜFE: ${ctx.parsed.y.toFixed(2)}%`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "#cbd5e1" },
+          grid: { color: "rgba(255,255,255,.08)" }
+        },
+        y: {
+          ticks: {
+            color: "#cbd5e1",
+            callback: value => value + "%"
+          },
+          grid: { color: "rgba(255,255,255,.08)" }
+        }
+      }
+    }
+  });
+}
+
+loadData();
+</script>
 </body>
-
 </html>
