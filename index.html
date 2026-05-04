@@ -167,7 +167,7 @@
     <section class="top">
       <div class="title">
         <h1>Enflasyon Takip</h1>
-        <p>TCMB verisinden 6 aylık enflasyon hesabı</p>
+        <p>TCMB TÜFE verisinden 6 aylık enflasyon hesabı</p>
       </div>
 
       <div class="controls">
@@ -381,8 +381,7 @@ function setError(message) {
   status.textContent = message;
 }
 
-// Radio değiştirince Güncelle'ye basmadan ekranda mevcut veri varsa yeniden hesaplasın.
-// İstersen bunu kaldırabilirsin; ama kullanım daha rahat olur.
+
 document.querySelectorAll('input[name="half"]').forEach(radio => {
   radio.addEventListener("change", () => {
     if (lastApiData) draw(lastApiData);
