@@ -1,69 +1,36 @@
-import pdfplumber
-import fitz  # PyMuPDF
 import pandas as pd
-import re
-from pdf2image import convert_from_path
-import pytesseract
+import plotly.graph_objects as go
 
-PDF_PATH = "organizasyon.pdf"
-START_PAGE = 55
-END_PAGE = 88
+# CSV dosyanı oku
+df = pd.read_csv("mission_data.csv")
 
-TITLE_KEYWORDS = [
-    "Mühendis",
-    "Uzman Mühendis",
-    "Kıdemli Mühendis"
-]
+fig = go.Figure()
 
-name_pattern = re.compile(r"([A-ZÇĞİÖŞÜ][a-zçğıöşü]+(?:\s[A-ZÇĞİÖŞÜ][a-zçğıöşü]+){1,2})")
+# 12 adet Time-Mission çifti için
+for i in range(1, 13):
+    time_col = f"Time{i}"
+    mission_col = f"Mission {i}"
 
-results = []
+    if time_col in df.columns and mission_col in df.columns:
+        temp = df[[time_col, mission_col]].dropna()
 
-def extract_from_text():
-    with pdfplumber.open(PDF_PATH) as pdf:
-        for i in range(START_PAGE - 1, END_PAGE):
-            text = pdf.pages[i].extract_text()
-            if not text:
-                continue
+        fig.add_trace(
+            go.Scatter(
+                x=temp[time_col],
+                y=temp[mission_col],
+                mode="lines",
+                name=f"Mission {i}"
+            )
+        )
 
-            for line in text.split("\n"):
-                name_match = name_pattern.search(line)
-                for title in TITLE_KEYWORDS:
-                    if title in line and name_match:
-                        results.append({
-                            "page": i + 1,
-                            "name": name_match.group(1),
-                            "title": title
-                        })
+fig.update_layout(
+    title="Mission Profiles",
+    xaxis_title="Time",
+    yaxis_title="Mission Value",
+    template="plotly_white",
+    hovermode="x unified",
+    width=1200,
+    height=700
+)
 
-def extract_with_ocr():
-    images = convert_from_path(
-        PDF_PATH,
-        first_page=START_PAGE,
-        last_page=END_PAGE,
-        dpi=300
-    )
-
-    for idx, img in enumerate(images):
-        text = pytesseract.image_to_string(img, lang="tur")
-        for line in text.split("\n"):
-            name_match = name_pattern.search(line)
-            for title in TITLE_KEYWORDS:
-                if title in line and name_match:
-                    results.append({
-                        "page": START_PAGE + idx,
-                        "name": name_match.group(1),
-                        "title": title
-                    })
-
-# Önce text dene
-extract_from_text()
-
-# Eğer hiç sonuç yoksa OCR’a düş
-if len(results) == 0:
-    extract_with_ocr()
-
-df = pd.DataFrame(results)
-df.to_csv("organizasyon_55_88.csv", index=False, encoding="utf-8-sig")
-
-print("CSV üretildi:", len(df), "kayıt")
+fig.show()
