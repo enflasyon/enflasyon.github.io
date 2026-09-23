@@ -1,0 +1,14 @@
+clearInterval(window.ileriTiklayici);
+
+window.ileriTiklayici = setInterval(() => {
+  const buton = [...document.querySelectorAll(
+    'button, a, input[type="button"], input[type="submit"], [role="button"]'
+  )].find(el =>
+    (el.value || el.innerText || "").trim().toLocaleLowerCase("tr-TR") === "ileri" &&
+    !el.disabled &&
+    el.getAttribute("aria-disabled") !== "true" &&
+    el.getClientRects().length > 0
+  );
+
+  buton?.click();
+}, 5000);
