@@ -11,4 +11,4 @@ window.ileriTiklayici = setInterval(() => {
   );
 
   buton?.click();
-}, 5000);
+}, 20000);
