@@ -1,290 +1,102 @@
-"""Kurulum: python -m pip install PySide6 selenium
-Çalıştırma: python cikis_saati_gui.py
-Örnek görünüm: python cikis_saati_gui.py --demo
-"""
-import sys
 import re
-import queue
 from datetime import datetime, timedelta
-from PySide6.QtCore import QThread, Signal, QDate, QTimer
-from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit,
-    QDateEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFrame)
 
-URL = ('https://report.tei.com.tr/Reports/report/'
-       'İnsan%20Kaynakları/PDKS/8.Günlük%20Giriş-Çıkış%20Raporu')
-DURATION = timedelta(hours=9, minutes=30)
-JS = '''return Array.from(document.querySelectorAll('tr'))
-.filter(r => r.getClientRects().length > 0)
-.map(r => Array.from(r.children)
-.filter(c => ['TD','TH'].includes(c.tagName)).map(c => c.innerText.trim()));'''
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
+
+URL = (
+    "https://report.tei.com.tr/Reports/report/"
+    "İnsan%20Kaynakları/PDKS/8.Günlük%20Giriş-Çıkış%20Raporu"
+)
+
+MESAİ = timedelta(hours=9, minutes=30)
+
+# Görseldeki sütun sırası:
+# Yaka No | Adı Soyadı | Tarih | Giriş Zamanı | Çıkış Zamanı
+SATIRLARI_OKU = """
+return Array.from(document.querySelectorAll("tr"))
+    .filter(row => row.getClientRects().length > 0)
+    .map(row => Array.from(row.children)
+        .filter(cell => ["TD", "TH"].includes(cell.tagName))
+        .map(cell => cell.innerText.trim()));
+"""
 
 
-def parse_rows(rows, badge, date):
-    records = set()
-    for cells in rows:
-        if len(cells) != 5:
+def kayitlari_bul(driver, yaka_no, tarih):
+    bulunanlar = []
+
+    for hucreler in driver.execute_script(SATIRLARI_OKU):
+        if len(hucreler) != 5:
             continue
-        number, name, day, time, _ = cells
-        if number.strip() != badge or day.strip() != date:
+
+        yaka, ad, gun, giris, _ = hucreler
+
+        if yaka != yaka_no or gun != tarih:
             continue
-        if re.fullmatch(r'\d{2}:\d{2}(?::\d{2})?', time):
-            fmt = '%d.%m.%Y %H:%M:%S' if time.count(':') == 2 else '%d.%m.%Y %H:%M'
-            start = datetime.strptime(f'{day} {time}', fmt)
-            records.add((name, start))
-    return records
 
+        if re.fullmatch(r"\d{2}:\d{2}(?::\d{2})?", giris):
+            bulunanlar.append((ad, gun, giris))
 
-def scan(driver, badge, date):
-    from selenium.webdriver.common.by import By
-    records = parse_rows(driver.execute_script(JS), badge, date)
-    for frame in driver.find_elements(By.CSS_SELECTOR, 'iframe, frame'):
+    # Rapor iframe içinde açılmışsa onun içini de oku.
+    for frame in driver.find_elements(By.CSS_SELECTOR, "iframe, frame"):
         driver.switch_to.frame(frame)
         try:
-            records.update(scan(driver, badge, date))
+            bulunanlar.extend(kayitlari_bul(driver, yaka_no, tarih))
         finally:
             driver.switch_to.parent_frame()
-    return records
+
+    return bulunanlar
 
 
-class BrowserWorker(QThread):
-    done = Signal(str, object)
+def main():
+    yaka_no = input("Yaka numaranız: ").strip()
+    tarih = input("Rapor tarihi (GG.AA.YYYY, bugün için Enter): ").strip()
+    tarih = tarih or datetime.now().strftime("%d.%m.%Y")
+    datetime.strptime(tarih, "%d.%m.%Y")
 
-    def __init__(self):
-        super().__init__()
-        self.jobs = queue.Queue()
+    driver = webdriver.Chrome()
 
-    def run(self):
-        from selenium import webdriver
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
-        driver = None
-        try:
-            while True:
-                action, data = self.jobs.get()
-                if action == 'quit':
-                    break
-                try:
-                    if action == 'open':
-                        if driver:
-                            try:
-                                driver.quit()
-                            except Exception:
-                                pass
-                            driver = None
-                        driver = webdriver.Chrome()
-                        driver.set_page_load_timeout(45)
-                        driver.get(data)
-                        self.done.emit('ready', None)
-                    elif action == 'read':
-                        if driver is None:
-                            raise ValueError('Önce raporu açın.')
-                        badge, date = data
-                        def poll(d):
-                            d.switch_to.default_content()
-                            return scan(d, badge, date) or False
-                        records = WebDriverWait(driver, 20,
-                            ignored_exceptions=(StaleElementReferenceException,)).until(poll)
-                        if len(records) != 1:
-                            raise ValueError('Birden fazla giriş bulundu. Raporu tek giriş kaydına filtreleyin.')
-                        self.done.emit('result', next(iter(records)))
-                except TimeoutException:
-                    self.done.emit('error', 'Süre doldu. Raporu, tarih filtresini ve yaka numarasını kontrol edin.')
-                except Exception as exc:
-                    self.done.emit('error', str(exc).split('\n')[0][:240])
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
+    try:
+        driver.get(URL)
+
+        print(
+            f"\nAçılan tarayıcıda gerekiyorsa oturum açın.\n"
+            f"Başlangıç ve bitiş tarihini {tarih} yapıp raporu görüntüleyin."
+        )
+        input("Rapor tablosu yüklendiğinde burada Enter'a basın...")
+
+        def raporu_oku(d):
+            d.switch_to.default_content()
+            return kayitlari_bul(d, yaka_no, tarih) or False
+
+        kayitlar = WebDriverWait(driver, 30).until(raporu_oku)
+        kayitlar = list(set(kayitlar))
+
+        if len(kayitlar) != 1:
+            raise ValueError(
+                "Birden fazla giriş kaydı bulundu. "
+                "Raporu tek kişi ve tek giriş kaydı olacak şekilde filtreleyin."
+            )
+
+        ad, gun, saat = kayitlar[0]
+        bicim = "%d.%m.%Y %H:%M:%S" if saat.count(":") == 2 else "%d.%m.%Y %H:%M"
+        giris = datetime.strptime(f"{gun} {saat}", bicim)
+        cikis = giris + MESAİ
+
+        print(f"\nAdı soyadı : {ad}")
+        print(f"Giriş      : {giris:%d.%m.%Y %H:%M}")
+        print(f"Çıkış      : {cikis:%d.%m.%Y %H:%M}")
+
+    except TimeoutException:
+        print(
+            "\nKayıt bulunamadı. Yaka numarasını, rapor tarihini "
+            "ve giriş saatinin dolu olduğunu kontrol edin."
+        )
+    finally:
+        driver.quit()
 
 
-STYLE = '''
-QWidget { background: #101827; color: #e8eef7; font-family: 'Segoe UI'; font-size: 14px; }
-QLabel#eyebrow { color: #54d6be; font-size: 12px; font-weight: 700; }
-QLabel#title { font-size: 30px; font-weight: 700; }
-QLabel#muted { color: #9babc1; }
-QFrame#card { background: #1a2639; border: 1px solid #30415a; border-radius: 12px; }
-QFrame#card QLabel { background: transparent; }
-QLabel#time { font-size: 34px; font-weight: 700; }
-QLabel#exit { color: #54d6be; font-size: 52px; font-weight: 700; }
-QLineEdit, QDateEdit { background: #1a2639; border: 1px solid #3c4e69;
- border-radius: 7px; padding: 10px; selection-background-color: #267966; }
-QPushButton { background: #283a53; border: none; border-radius: 8px; padding: 14px; font-weight: 600; }
-QPushButton#primary { background: #54d6be; color: #102922; }
-QPushButton:disabled { background: #243045; color: #697b93; }
-QPushButton:hover { border: 1px solid #80ecd6; }
-'''
-
-
-class Window(QWidget):
-    def __init__(self, demo=False):
-        super().__init__()
-        self.worker = None
-        self.closing = False
-        self.end = None
-        self.demo = demo
-        self.setWindowTitle('Çıkış Saati • Mesai Hesaplayıcı')
-        self.resize(730, 750)
-        self.setMinimumWidth(680)
-        self.setStyleSheet(STYLE)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 26, 32, 26)
-        layout.setSpacing(16)
-        def label(text, style='muted'):
-            w = QLabel(text)
-            w.setObjectName(style)
-            w.setWordWrap(True)
-            return w
-        layout.addWidget(label('MESAİ HESAPLAYICI  /  09 SA 30 DK', 'eyebrow'))
-        layout.addWidget(label('Çıkış saatim kaç?', 'title'))
-        layout.addWidget(label('Giriş saatin rapordan okunsun, çıkış saatin hesaplansın.'))
-        self.url = QLineEdit(URL)
-        layout.addWidget(label('Rapor adresi'))
-        layout.addWidget(self.url)
-        form = QHBoxLayout()
-        for title, widget in [('Yaka numarası', QLineEdit()), ('Rapor tarihi', QDateEdit())]:
-            column = QVBoxLayout()
-            column.addWidget(label(title))
-            column.addWidget(widget)
-            form.addLayout(column)
-            if isinstance(widget, QLineEdit):
-                self.badge = widget
-                widget.setPlaceholderText('Yaka numaranızı yazın')
-            else:
-                self.date = widget
-                widget.setDisplayFormat('dd.MM.yyyy')
-                widget.setCalendarPopup(True)
-                widget.setDate(QDate.currentDate())
-        layout.addLayout(form)
-        buttons = QHBoxLayout()
-        self.open_button = QPushButton('1  Raporu aç')
-        self.read_button = QPushButton('2  Girişi oku ve hesapla')
-        self.read_button.setObjectName('primary')
-        self.read_button.setEnabled(False)
-        buttons.addWidget(self.open_button)
-        buttons.addWidget(self.read_button)
-        layout.addLayout(buttons)
-        self.open_button.clicked.connect(self.open_report)
-        self.read_button.clicked.connect(self.read_report)
-        layout.addWidget(label('Chrome’da oturum açın, seçtiğiniz tarihin raporunu görüntüleyin.\nArdından “Girişi oku ve hesapla” düğmesine basın.'))
-        card = QFrame()
-        card.setObjectName('card')
-        cards = QHBoxLayout(card)
-        cards.setContentsMargins(24, 20, 24, 20)
-        for title, attr, style in [('GİRİŞ SAATİ', 'start_label', 'time'), ('HESAPLANAN ÇIKIŞ', 'end_label', 'exit')]:
-            col = QVBoxLayout()
-            col.addWidget(label(title))
-            value = label('--:--', style)
-            setattr(self, attr, value)
-            col.addWidget(value)
-            cards.addLayout(col)
-        layout.addWidget(card)
-        self.person = label('Henüz giriş kaydı okunmadı.')
-        self.remaining = label('Giriş + 9 saat 30 dakika', 'eyebrow')
-        self.status = label('Hazır • Raporu açarak başlayın.')
-        layout.addWidget(self.person)
-        layout.addWidget(self.remaining)
-        layout.addStretch()
-        layout.addWidget(self.status)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.tick)
-        self.timer.start(1000)
-        self.badge.textChanged.connect(self.clear_result)
-        self.date.dateChanged.connect(self.clear_result)
-        if demo:
-            self.badge.setText('3365')
-            self.date.setDate(QDate(2026, 10, 7))
-            self.show_result(('Örnek kayıt', datetime(2026, 10, 7, 10, 28)))
-            self.remaining.setText('Giriş + 9 saat 30 dakika = 19:58')
-            self.status.setText('ÖNİZLEME • Görseldeki saatle örnek hesaplama; canlı veri değildir.')
-            self.open_button.setEnabled(False)
-
-    def clear_result(self, *_):
-        self.end = None
-        self.start_label.setText('--:--')
-        self.end_label.setText('--:--')
-        self.person.setText('Henüz giriş kaydı okunmadı.')
-        self.remaining.setText('Giriş + 9 saat 30 dakika')
-
-    def busy(self, value):
-        for widget in [self.open_button, self.read_button, self.badge, self.date, self.url]:
-            widget.setEnabled(not value)
-
-    def open_report(self):
-        self.clear_result()
-        if self.worker is None:
-            try:
-                import selenium
-            except ImportError:
-                self.status.setText('Kurulum gerekli: python -m pip install selenium')
-                return
-            self.worker = BrowserWorker()
-            self.worker.done.connect(self.receive)
-            self.worker.finished.connect(self.worker_finished)
-            self.worker.start()
-        self.busy(True)
-        self.status.setText('Chrome açılıyor…')
-        self.worker.jobs.put(('open', self.url.text().strip()))
-
-    def read_report(self):
-        if not self.badge.text().strip():
-            self.status.setText('Lütfen yaka numaranızı yazın.')
-            return
-        self.clear_result()
-        self.busy(True)
-        self.status.setText('Giriş kaydı aranıyor…')
-        self.worker.jobs.put(('read', (self.badge.text().strip(), self.date.date().toString('dd.MM.yyyy'))))
-
-    def receive(self, kind, data):
-        if self.closing:
-            return
-        self.busy(False)
-        if kind == 'ready':
-            self.status.setText('Rapor açıldı • Tarih filtresini ayarlayıp girişi okuyun.')
-        elif kind == 'result':
-            self.show_result(data)
-            self.status.setText('Hesaplandı • Süre, giriş saatine doğrudan eklendi.')
-        else:
-            self.status.setText('İşlem tamamlanamadı: ' + data)
-
-    def show_result(self, record):
-        name, start = record
-        self.end = start + DURATION
-        self.start_label.setText(start.strftime('%H:%M:%S'))
-        self.end_label.setText(self.end.strftime('%H:%M:%S'))
-        self.person.setText(f'{name}  •  Giriş: {start:%d.%m.%Y}  •  Çıkış: {self.end:%d.%m.%Y}')
-        self.tick()
-
-    def tick(self):
-        if self.end is None or self.demo:
-            return
-        seconds = int((self.end - datetime.now()).total_seconds())
-        if seconds <= 0:
-            self.remaining.setText('Hesaplanan çıkış zamanı geldi.')
-        else:
-            h, rem = divmod(seconds, 3600)
-            m, s = divmod(rem, 60)
-            self.remaining.setText(f'Çıkışa kalan  •  {h:02}:{m:02}:{s:02}')
-
-    def worker_finished(self):
-        if self.closing:
-            self.close()
-
-    def closeEvent(self, event):
-        if self.worker and self.worker.isRunning():
-            event.ignore()
-            if not self.closing:
-                self.closing = True
-                self.busy(True)
-                self.status.setText('Tarayıcı kapatılıyor; devam eden işlem bekleniyor…')
-                self.worker.jobs.put(('quit', None))
-        else:
-            event.accept()
-
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = Window(demo='--demo' in sys.argv)
-    window.show()
-    sys.exit(app.exec())
+if __name__ == "__main__":
+    main()
