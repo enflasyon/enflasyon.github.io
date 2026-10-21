@@ -1,23 +1,50 @@
+from pathlib import Path
 from tkinter import Tk, filedialog
 
 root = Tk()
 root.withdraw()
-path = filedialog.askopenfilename(title="RSP dosyasını seç")
+name = filedialog.askopenfilename(title="RSP dosyasını seç")
 root.destroy()
 
-if path:
-    with open(path, "rb") as f:
-        for i in range(20):
-            record = f.read(128)
-            if len(record) < 128:
-                break
+if name:
+    path = Path(name)
+    headers = {}
 
-            key = record[:32].decode("cp1252", errors="replace")
-            value = record[32:].decode("cp1252", errors="replace")
+    def read_record(f):
+        record = f.read(128)
+        if len(record) != 128:
+            raise ValueError("Başlık beklenenden kısa.")
+        key = record[:32].decode("cp1252").rstrip("\x00").strip()
+        value = record[32:].decode("cp1252").rstrip("\x00").strip()
+        return key, value
 
-            print(
-                i,
-                repr(key.rstrip("\x00")),
-                "=",
-                repr(value.rstrip("\x00")),
-            )
+    with path.open("rb") as f:
+        for _ in range(3):
+            key, value = read_record(f)
+            headers[key] = value
+
+        for _ in range(3, int(headers["NUM_PARAMS"])):
+            key, value = read_record(f)
+            headers[key] = value
+
+    for key in [
+        "FORMAT", "DATA_TYPE", "INT_FULL_SCALE",
+        "CHANNELS", "FRAMES", "PTS_PER_FRAME",
+        "PTS_PER_GROUP", "NUM_HEADER_BLOCKS",
+        "SCALE.CHAN_1",
+    ]:
+        print(f"{key}: {headers.get(key, 'YOK')}")
+
+    header_bytes = int(headers["NUM_HEADER_BLOCKS"]) * 512
+    data_bytes = path.stat().st_size - header_bytes
+
+    sample_count = (
+        int(headers["CHANNELS"])
+        * int(headers["FRAMES"])
+        * int(headers["PTS_PER_FRAME"])
+    )
+
+    print("\nDosya boyutu:", path.stat().st_size, "bayt")
+    print("Veri bölümü:", data_bytes, "bayt")
+    print("16 bit için beklenen:", sample_count * 2, "bayt")
+    print("32 bit için beklenen:", sample_count * 4, "bayt")
