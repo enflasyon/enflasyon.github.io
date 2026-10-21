@@ -1,1 +1,436 @@
-y
+"""RSP Plotter — PySide6 light theme.
+Install: python -m pip install PySide6 matplotlib numpy pandas plotly rpc-reader==0.9
+Run: python RSP_Plotter_PySide6.py
+
+The approved RPC header fallback, original calculation expressions and Freq=1
+export averaging are retained. In particular, the known coordinate-rotation
+issue in the original calculation is NOT corrected in this UI-only revision.
+INT_FULL_SCALE=32768 remains a source-data scaling assumption to validate.
+"""
+import sys
+import os
+import math
+import traceback
+import numpy as np
+import pandas as pd
+import plotly.express as px
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QFont, QIcon
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QScrollArea, QLabel, QLineEdit,
+    QPushButton, QListWidget, QListWidgetItem, QAbstractItemView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox,
+    QFrame, QVBoxLayout, QStyle,
+)
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from rpc_reader import rpc_reader
+
+STYLE = """
+QMainWindow, QWidget#surface { background: #f5f7fa; }
+QWidget { color: #24374f; font-family: 'Segoe UI'; font-size: 12px; }
+QMenuBar, QMenu { background: white; }
+QMenuBar::item:selected, QMenu::item:selected { background: #dff7f2; }
+QLabel { background: transparent; }
+QLabel[heading="true"] { font-weight: 600; color: #182c47; }
+QLabel#filePath, QLabel#selection, QFrame#plotCard {
+ background: white; border: 1px solid #d5e0eb; border-radius: 7px;
+}
+QLabel#filePath { padding: 4px 10px; color: #57687c; }
+QLabel#selection { padding: 12px; }
+QLineEdit { background: white; border: 1px solid #cedbe7; border-radius: 5px; padding: 2px 8px; }
+QLineEdit:focus { border: 1px solid #00a89a; }
+QPushButton { background: white; border: 1px solid #c9d8e5; border-radius: 6px; padding: 2px 6px; }
+QPushButton:hover { background: #eefaf7; border-color: #00a89a; }
+QPushButton:pressed { background: #d9f3ec; }
+QPushButton#primary { background: #00a799; color: white; border-color: #00958a; font-weight: 600; }
+QPushButton#primary:hover { background: #008e83; }
+QPushButton:disabled { color: #9aabba; background: #f0f3f6; border-color: #e0e6ed; }
+QListWidget { background: white; alternate-background-color: #f5f8fb; border: 1px solid #d5e0eb; border-radius: 7px; padding: 6px; outline: none; }
+QListWidget::item { padding: 6px 8px; border-radius: 4px; min-height: 22px; }
+QListWidget::item:selected { background: #d9f7ef; color: #17605a; }
+QListWidget::item:hover { background: #ecf9f5; }
+QTableWidget { background: white; alternate-background-color: #f5f8fb; gridline-color: #e6edf4; border: 1px solid #d5e0eb; border-radius: 6px; }
+QHeaderView::section { background: #f2f7fb; padding: 5px 10px; border: none; border-right: 1px solid #e2eaf2; font-weight: 600; }
+QScrollArea { border: none; }
+QScrollBar:vertical { background: #f0f4f8; width: 9px; margin: 0; }
+QScrollBar::handle:vertical { background: #c4d1df; min-height: 28px; border-radius: 4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QStatusBar { background: white; color: #64748b; border-top: 1px solid #e3eaf1; }
+"""
+
+
+class Surface(QWidget):
+    """Keep the original 1840 x 1000 coordinate map; scale as one layout."""
+    def __init__(self):
+        super().__init__()
+        self.setObjectName('surface')
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setMinimumSize(1400, 850)
+        self.placements = []
+
+    def put(self, widget, x, y, width, height):
+        widget.setParent(self)
+        self.placements.append((widget, x, y, width, height))
+        self.reflow()
+        return widget
+
+    def reflow(self):
+        sx, sy = self.width()/1840, self.height()/1000
+        for w, x, y, width, height in self.placements:
+            w.setGeometry(round(x*sx), round(y*sy), round(width*sx), round(height*sy))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.reflow()
+
+
+class App(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('RSP Plotter')
+        self.resize(1600, 980)
+        icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rsp.ico')
+        if os.path.isfile(icon):
+            self.setWindowIcon(QIcon(icon))
+        self.setStyleSheet(STYLE)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        self.surface = Surface()
+        scroll.setWidget(self.surface)
+        self.setCentralWidget(scroll)
+        info = self.menuBar().addMenu('Info')
+        info.addAction('About', self.about_window)
+        info.addAction('Exit', self.close)
+        self.statusBar().showMessage('Ready — import an RSP / RPC file')
+        self.data = None
+        self.lb1select, self.lb2select = [], []
+        self.Table_List, self.aydata = [], []
+        self.plot_ready = False
+        self._build_ui()
+
+    def label(self, text, rect, heading=False, right=False):
+        w = QLabel(text)
+        w.setProperty('heading', heading)
+        w.setAlignment((Qt.AlignRight if right else Qt.AlignLeft) | Qt.AlignVCenter)
+        w.setToolTip(text)
+        return self.surface.put(w, *rect)
+
+    def button(self, text, rect, action, icon=None, primary=False):
+        w = QPushButton(text)
+        if primary:
+            w.setObjectName('primary')
+        if icon is not None:
+            w.setIcon(self.style().standardIcon(icon))
+            w.setIconSize(QSize(17, 17))
+        w.setCursor(Qt.PointingHandCursor)
+        w.clicked.connect(lambda checked=False: self.invoke(action))
+        self.surface.put(w, *rect)
+        return w
+
+    def _build_ui(self):
+        self.lab0 = self.label('Select an RSP / RPC file', (40, 10, 420, 32))
+        self.lab0.setObjectName('filePath')
+        self.bt0 = self.button('Import File', (470, 10, 100, 32), self.bt0_command, QStyle.SP_DialogOpenButton)
+        self.label('X Data', (40, 43, 250, 25), True)
+        self.label('Y Data', (320, 43, 250, 25), True)
+        self.lb1, self.lb2 = QListWidget(), QListWidget()
+        for w, x in [(self.lb1, 40), (self.lb2, 320)]:
+            w.setAlternatingRowColors(True)
+            self.surface.put(w, x, 70, 250, 520)
+        self.lb1.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.lb2.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.bt1 = self.button('Get X Values', (40, 600, 250, 32), self.bt1_command, QStyle.SP_MediaPlay)
+        self.bt2 = self.button('Get Y Values', (320, 600, 250, 32), self.bt2_command, QStyle.SP_MediaPlay)
+        self.lab3 = self.label('Selected X Data', (40, 645, 250, 135))
+        self.lab4 = self.label('Selected Y Data', (320, 645, 250, 135))
+        for w in (self.lab3, self.lab4):
+            w.setObjectName('selection')
+            w.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            w.setWordWrap(True)
+            w.setTextFormat(Qt.PlainText)
+        card = QFrame()
+        card.setObjectName('plotCard')
+        self.surface.put(card, 600, 70, 1200, 600)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self.fig1 = Figure(facecolor='white', layout='constrained')
+        self.ax = self.fig1.add_subplot(111)
+        self.canvas1 = FigureCanvasQTAgg(self.fig1)
+        layout.addWidget(self.canvas1)
+        self._empty_plot()
+        self.tree = QTableWidget(0, 4)
+        self.tree.setHorizontalHeaderLabels(['Data Name', 'Data Min Value', 'Data Max Value', 'Data Units'])
+        self.tree.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tree.verticalHeader().hide()
+        self.tree.verticalHeader().setDefaultSectionSize(24)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.surface.put(self.tree, 600, 680, 1200, 100)
+        self.label('Rosette Gauge Properties', (1030, 800, 250, 25), True)
+        self.label('Material Properties', (1290, 800, 250, 25), True)
+        names = ['Rosette Gauge Angle 1, Deg', 'Rosette Gauge Angle 2, Deg',
+                 'Rosette Gauge Angle 3, Deg', 'Rosette Gauge Angle Correction, Deg']
+        for i, (name, value) in enumerate(zip(names, ['45', '90', '135', '0']), 1):
+            y = 825 + (i-1)*30
+            self.label(name, (755, y, 265, 27), right=True)
+            entry = self.surface.put(QLineEdit(value), 1030, y, 250, 27)
+            setattr(self, f'Ent{i}', entry)
+        self.Ent5 = self.surface.put(QLineEdit('200000'), 1290, 825, 250, 27)
+        self.Ent6 = self.surface.put(QLineEdit('0.3'), 1290, 855, 250, 27)
+        self.label('Modulus of Elasticity, MPa', (1550, 825, 250, 27))
+        self.label("Poisson's Ratio", (1550, 855, 250, 27))
+        self.bt3 = self.button('Import Plot', (510, 950, 250, 36), self.bt3_command, QStyle.SP_DirOpenIcon)
+        self.bt5 = self.button('Export Plot', (770, 950, 250, 36), self.bt5_command, QStyle.SP_DialogSaveButton)
+        self.bt6 = self.button('Stress and Strain Calculation', (1030, 950, 250, 36), self.bt6_command, primary=True)
+        self.bt4 = self.button('Clear Plot', (1290, 950, 250, 36), self.bt4_command, QStyle.SP_DialogResetButton)
+        self.bt7 = self.button('Exit', (1550, 950, 250, 36), self.close, QStyle.SP_DialogCloseButton)
+
+    def invoke(self, action):
+        """Qt button boundary: report errors instead of terminating the GUI."""
+        try:
+            action()
+        except (Exception, SystemExit) as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, 'RSP Plotter', str(exc))
+            self.statusBar().showMessage('Operation failed — see error details')
+
+    def about_window(self):
+        QMessageBox.about(self, 'About | RSP Plotter',
+            'RSP Plotter — PySide6\n\nis designed for TS1400 - TEI\n'
+            'by Combustion Chamber Team | 2022\nOnur Agdaci - Samet Kizilaslan')
+
+    def _style_axes(self):
+        self.ax.set_facecolor('white')
+        self.ax.set_prop_cycle(color=['#00a99b', '#f3ad16', '#3285f5', '#9168c8', '#de6a75'])
+        self.ax.tick_params(colors='#53667e', labelsize=9)
+        for spine in self.ax.spines.values():
+            spine.set_color('#d5e0eb')
+        self.ax.spines['top'].set_visible(False)
+        self.ax.spines['right'].set_visible(False)
+        self.ax.grid(True, color='#e3eaf2', linewidth=.7)
+        self.ax.set_axisbelow(True)
+
+    def _empty_plot(self):
+        self.ax.clear()
+        self._style_axes()
+        self.ax.set_xlabel('X Data', color='#24374f')
+        self.ax.set_ylabel('Y Data', color='#24374f')
+        self.ax.text(.5, .5, 'Import a file and select X / Y data',
+                     transform=self.ax.transAxes, ha='center', va='center', color='#8291a3')
+        self.canvas1.draw_idle()
+
+    def bt0_command(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'Import RSP / RPC file', '',
+                                            'RPC data (*.rsp *.rpc *.tim);;All files (*)')
+        if not path:
+            return
+        self.statusBar().showMessage('Reading file…')
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            reader = rpc_reader.ReadRPC(path, extra_headers=[
+                ('DATA_TYPE', 'SHORT_INTEGER'), ('INT_FULL_SCALE', '32768')])
+            reader.import_rpc_data_from_file()
+            channels = reader.get_channels()
+            data, time = reader.get_data(), reader.get_time()
+            names, units = [], []
+            for key, value in channels.items():
+                names.append(value['Description'])
+                units.append(value['Units'])
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.head, self.tail = os.path.split(path)
+        self.data, self.Z, self.D, self.U = data, time, names, units
+        self.lab0.setText(self.tail)
+        self.lab0.setToolTip(path)
+        self.lb1.clear()
+        self.lb2.clear()
+        self.lb1.addItems(names + ['Time'])
+        self.lb2.addItems(names + ['Time'])
+        self.lb1select, self.lb2select = [], []
+        self.plot_ready = False
+        self.bt4_command()
+        self.statusBar().showMessage(f'{self.tail}  •  {len(names)} channels loaded')
+
+    def bt1_command(self):
+        selected = self.lb1.selectedItems()
+        if not selected:
+            raise ValueError('Select one X channel first.')
+        self.lb1select = [w.text() for w in selected]
+        self.lab3.setText('Selected X Data\n\n' + self.lb1select[0])
+        self.plot_ready = False
+
+    def bt2_command(self):
+        selected = sorted(self.lb2.selectedItems(), key=self.lb2.row)
+        if not selected:
+            raise ValueError('Select at least one Y channel first.')
+        self.lb2select = [w.text() for w in selected]
+        self.units = [self.lb2.row(w) for w in selected]
+        self.lab4.setText('Selected Y Data\n\n' + '\n'.join(self.lb2select))
+        self.lab4.setToolTip('\n'.join(self.lb2select))
+        self.plot_ready = False
+
+    def bt3_command(self):
+        if self.data is None or not self.lb1select or not self.lb2select:
+            raise ValueError('Import a file, then use Get X Values and Get Y Values.')
+        self.plot_ready = False
+        self.ax.clear()
+        self._style_axes()
+        self.Table_List, self.aydata = [], []
+        self.X_Data_Name = self.lb1select[0]
+        self.axdata = self.Z[0] if self.X_Data_Name == 'Time' else self.data[:, self.D.index(self.X_Data_Name)]
+        for name in self.lb2select:
+            if name == 'Time':
+                values, unit = self.Z[0], 'Sec'
+            else:
+                idx = self.D.index(name)
+                values, unit = self.data[:, idx], self.U[idx]
+            self.aydata.append(values)
+            self.Table_List.append([name, min(values), max(values), '['+unit+']'])
+            self.ax.plot(self.axdata, values, label=name+'['+unit+']', linewidth=.5 if name != 'Time' else 1.5)
+        self.ax.legend(loc='upper left', frameon=False, fontsize=9)
+        xunit = 's' if self.X_Data_Name == 'Time' else self.U[self.D.index(self.X_Data_Name)]
+        self.ax.set_xlabel(self.X_Data_Name+' ['+xunit+']', color='#24374f')
+        yunits = {r[3] for r in self.Table_List}
+        self.ax.set_ylabel('Y Data '+(next(iter(yunits)) if len(yunits)==1 else ''), color='#24374f')
+        self.canvas1.draw_idle()
+        self.tree.setRowCount(len(self.Table_List))
+        for row, values in enumerate(self.Table_List):
+            for col, value in enumerate(values):
+                self.tree.setItem(row, col, QTableWidgetItem(f'{value:.6g}' if isinstance(value, (float, np.floating)) else str(value)))
+        self.lab3.setText('Selected X Data\n\n'+self.X_Data_Name)
+        self.lab4.setText('Selected Y Data\n\n'+'\n'.join(self.lb2select))
+        self.plot_ready = True
+        self.statusBar().showMessage(f'{len(self.lb2select)} curves  •  {len(self.axdata):,} samples  •  raw data')
+
+    def bt4_command(self):
+        self.lab3.setText('Selected X Data')
+        self.lab4.setText('Selected Y Data')
+        self.tree.setRowCount(0)
+        self._empty_plot()
+        self.plot_ready = False
+
+    def _require_plot(self):
+        if not self.plot_ready:
+            raise ValueError('Use Import Plot before exporting or calculating.')
+
+    def bt5_command(self):  # Original export averaging retained
+        self._require_plot()
+        dict1 = {self.X_Data_Name:self.axdata}
+        for i in range(len(self.lb2select)):
+            dict1.update({str(self.Table_List[i][0]+self.Table_List[i][3]): self.aydata[i]})
+        df = pd.DataFrame(dict1)
+        Dpsec=len(df.index)/max(self.axdata)
+        Freq=1  # New sampling frequency per second with mean value
+        NS=Dpsec/Freq  # Define new division
+        s = (df.index.to_series() / int(NS)).astype(int)  # Create Label group
+        df = df.groupby(s).mean().set_index(s.index[0::int(NS)])  # Get New Sampling by using mean value
+        df.to_csv(self.tail[:-4]+'.csv', encoding='utf-8', index=False)
+        fig = px.line(df, x = df.columns[0], y = df.columns[1:len(df.columns)], title=self.tail)
+        fig.update_traces(mode="lines")
+        fig.update_traces(line=dict(width=2))
+        fig.update_xaxes(showspikes=True,spikecolor='grey',spikesnap='cursor')
+        fig.update_layout(spikedistance=100, hoverdistance=100)
+        fig.update_layout(hovermode='x')
+        fig.write_html(self.tail[:-4]+'.html')
+        fig.show()
+
+    def bt6_command(self):  # Original calculation expressions retained
+        self._require_plot()
+        if len(self.lb2select) != 3:
+            raise ValueError("Select exactly three rosette channels.")
+        names = [r[0] for r in self.Table_List]
+        if not (names[0][:-1] == names[1][:-1] == names[2][:-1] and
+                [n[-1:] for n in names] == ["1", "2", "3"] and
+                len({r[3] for r in self.Table_List}) == 1):
+            raise ValueError("Select matching rosette channels ending in 1, 2, 3 with identical units.")
+        dict1 = {self.X_Data_Name:self.axdata}
+        if len(self.lb2select)>3:
+            return
+
+        if self.Table_List[0][3]==self.Table_List[1][3]==self.Table_List[2][3]:
+            if self.Table_List[0][0][:-1]==self.Table_List[1][0][:-1]==self.Table_List[2][0][:-1]:
+                if self.Table_List[0][0][-1]=="1" and self.Table_List[1][0][-1]=="2" and self.Table_List[2][0][-1]=="3":
+                    self.EX=[]
+                    self.EY=[]
+                    self.EXY=[]
+                    self.SX=[]
+                    self.SY=[]
+                    self.SXY=[]
+                    self.S1=[]
+                    self.S3=[]
+                    self.Seqv=[]
+
+                    Ang1=float(self.Ent1.text())
+                    Ang2=float(self.Ent2.text())
+                    Ang3=float(self.Ent3.text())
+                    Ang4=float(self.Ent4.text())
+                    E=float(self.Ent5.text())
+                    v=float(self.Ent6.text())
+
+                    Ang1=math.radians(Ang1)
+                    Ang2=math.radians(Ang2)
+                    Ang3=math.radians(Ang3)
+                    Ang4=math.radians(Ang4)
+
+                    A=np.array([[math.cos(Ang1)**2, math.sin(Ang1)**2, math.cos(Ang1)*math.sin(Ang1)],
+                                [math.cos(Ang2)**2, math.sin(Ang2)**2, math.cos(Ang2)*math.sin(Ang2)],
+                                [math.cos(Ang3)**2, math.sin(Ang3)**2, math.cos(Ang3)*math.sin(Ang3)]])
+
+                    B=np.array([self.aydata[0],self.aydata[1],self.aydata[2]])
+                    X = np.linalg.solve(A,B)
+
+                    self.EX=X[0]
+                    self.EY=X[1]
+                    self.EXY=X[2]
+
+                    #Coordinate Correction
+                    self.EX=(self.EX+self.EY)/2+((self.EX-self.EY)/2)*math.cos(2*Ang4)+self.EXY*math.sin(2*Ang4)
+                    self.EY=(self.EX+self.EY)/2-((self.EX-self.EY)/2)*math.cos(2*Ang4)-self.EXY*math.sin(2*Ang4)
+                    self.EXY=-((self.EX-self.EY)/2)*math.sin(2*Ang4)+self.EXY*math.cos(2*Ang4)
+                    self.SX=((self.EX*(10**-6)+self.EY*(10**-6)*v)*E)/(1-v**2)  # Component X Stress
+                    self.SY=((self.EY*(10**-6)+self.EX*(10**-6)*v)*E)/(1-v**2)  # Component Y Stress
+                    self.SXY=(self.EXY*(10**-6))*E/(2+2*v)  # Shear Stress
+                    self.S1=((self.SX+self.SY)/2)+(((self.SX-self.SY)/2)**2+self.SXY**2)**0.5  # Max Principle Stress
+                    self.S3=((self.SX+self.SY)/2)-(((self.SX-self.SY)/2)**2+self.SXY**2)**0.5  # Min Principle Stress
+                    self.Seqv=(self.S1**2-self.S1*self.S3+self.S3**2)**0.5  # Equivalent Stress
+
+                    for i in range(len(self.lb2select)):
+                        dict1.update({str(self.Table_List[i][0]+self.Table_List[i][3]): self.aydata[i]})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'εX': self.EX})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'εY': self.EY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'εXY': self.EXY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SX': self.SX})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SY': self.SY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SXY': self.SXY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'S1': self.S1})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'S3': self.S3})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SEqv': self.Seqv})
+                    df = pd.DataFrame(dict1)
+                    Dpsec=len(df.index)/max(self.axdata)
+                    Freq=1  # New sampling frequency per second with mean value
+                    NS=Dpsec/Freq  # Define new division
+                    s = (df.index.to_series() / int(NS)).astype(int)
+                    df = df.groupby(s).mean().set_index(s.index[0::int(NS)])
+                    fig = px.line(df, x = df.columns[0], y = df.columns[1:len(df.columns)], title=self.tail)
+                    fig.update_traces(mode="lines")
+                    fig.update_traces(line=dict(width=2))
+                    fig.update_xaxes(showspikes=True,spikecolor='grey',spikesnap='cursor')
+                    fig.update_layout(spikedistance=100, hoverdistance=100)
+                    fig.update_layout(hovermode='x')
+                    fig.write_html(str(self.Table_List[0][0][:-1])+'Calculated'+'.html')
+                    fig.show()
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    app.setFont(QFont('Segoe UI', 10))
+    window = App()
+    window.showMaximized()
+    sys.exit(app.exec())
+
+
+if __name__ == '__main__':
+    main()
