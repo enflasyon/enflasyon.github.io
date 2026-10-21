@@ -1,50 +1,619 @@
-from pathlib import Path
-from tkinter import Tk, filedialog
+import tkinter as tk
+import tkinter.font as tkFont
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import os
+import math
 
-root = Tk()
-root.withdraw()
-name = filedialog.askopenfilename(title="RSP dosyasını seç")
-root.destroy()
+from tkinter import messagebox
+from tkinter.filedialog import askopenfilename
+from tkinter import ttk
+from rpc_reader import rpc_reader
+from matplotlib.backends.backend_tkagg import (
+    FigureCanvasTkAgg, NavigationToolbar2Tk)
+from matplotlib.backend_bases import key_press_handler
+from matplotlib.figure import Figure
 
-if name:
-    path = Path(name)
-    headers = {}
+class App:
+    def __init__(self, root):
+        #setting title
+        root.title("RSP Plotter")
+        #root.iconbitmap('rsp.ico')  # pencere ekrani
 
-    def read_record(f):
-        record = f.read(128)
-        if len(record) != 128:
-            raise ValueError("Başlık beklenenden kısa.")
-        key = record[:32].decode("cp1252").rstrip("\x00").strip()
-        value = record[32:].decode("cp1252").rstrip("\x00").strip()
-        return key, value
+        #setting window size
+        width=1240
+        height=704
+        screenwidth = root.winfo_screenwidth()
+        screenheight = root.winfo_screenheight()
+        alignstr = '%dx%d+%d+%d' % (width, height, (screenwidth - width) / 2, (screenheight - height) / 2)
+        root.geometry(alignstr)
+        root.resizable(width=True, height=True)
+        root.state('zoomed')
+        menu = tk.Menu(root)
+        root.config(menu=menu)
+        hm = tk.Menu(menu, tearoff=0)
+        menu.add_cascade(label='Info', menu=hm)
+        hm.add_command(label='About', command=self.about_window)
+        hm.add_command(label='Exit', command=root.quit)
 
-    with path.open("rb") as f:
-        for _ in range(3):
-            key, value = read_record(f)
-            headers[key] = value
+        #RSP Import File
+        self.lab0=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=12)
+        self.lab0["font"] = ft
+        self.lab0["fg"] = "#333333"
+        self.lab0["bg"] = "#ffffff"
+        self.lab0["justify"] = "left"
+        self.lab0["anchor"] = "w"
+        self.lab0["text"] = ""
+        self.lab0.place(x=40,y=10,width=420,height=25)
 
-        for _ in range(3, int(headers["NUM_PARAMS"])):
-            key, value = read_record(f)
-            headers[key] = value
+        #X Datas Message
+        self.lab1=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab1["font"] = ft
+        self.lab1["fg"] = "#333333"
+        self.lab1["justify"] = "left"
+        self.lab1["anchor"] = "w"
+        self.lab1["text"] = "X Data"
+        self.lab1.place(x=40,y=40,width=250,height=25)
 
-    for key in [
-        "FORMAT", "DATA_TYPE", "INT_FULL_SCALE",
-        "CHANNELS", "FRAMES", "PTS_PER_FRAME",
-        "PTS_PER_GROUP", "NUM_HEADER_BLOCKS",
-        "SCALE.CHAN_1",
-    ]:
-        print(f"{key}: {headers.get(key, 'YOK')}")
+        #Y Datas Message
+        self.lab2=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab2["font"] = ft
+        self.lab2["fg"] = "#333333"
+        self.lab2["justify"] = "left"
+        self.lab2["anchor"] = "w"
+        self.lab2["text"] = "Y Data"
+        self.lab2.place(x=320,y=40,width=250,height=25)
 
-    header_bytes = int(headers["NUM_HEADER_BLOCKS"]) * 512
-    data_bytes = path.stat().st_size - header_bytes
+        #Selected X Data Message
+        self.lab3=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab3["font"] = ft
+        self.lab3["fg"] = "#333333"
+        self.lab3["justify"] = "left"
+        self.lab3["anchor"] = "nw"
+        self.lab3["text"] = "Selected X Data"
+        self.lab3.place(x=40,y=635,width=250,height=200)
 
-    sample_count = (
-        int(headers["CHANNELS"])
-        * int(headers["FRAMES"])
-        * int(headers["PTS_PER_FRAME"])
-    )
+        #Selected Y Data Message
+        self.lab4=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab4["font"] = ft
+        self.lab4["fg"] = "#333333"
+        self.lab4["justify"] = "left"
+        self.lab4["anchor"] = "nw"
+        self.lab4["text"] = "Selected Y Data"
+        self.lab4.place(x=320,y=635,width=250,height=200)
 
-    print("\nDosya boyutu:", path.stat().st_size, "bayt")
-    print("Veri bölümü:", data_bytes, "bayt")
-    print("16 bit için beklenen:", sample_count * 2, "bayt")
-    print("32 bit için beklenen:", sample_count * 4, "bayt")
+        #Strain Gauge Angles 1 Label
+        self.lab5=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab5["font"] = ft
+        self.lab5["fg"] = "#333333"
+        self.lab5["justify"] = "right"
+        self.lab5["anchor"] = "ne"
+        self.lab5["text"] = "Rossette Gauge Angle 1, Deg"
+        self.lab5.place(x=770,y=825,width=250,height=25)
+
+        #Strain Gauge Angles 2 Label
+        self.lab6=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab6["font"] = ft
+        self.lab6["fg"] = "#333333"
+        self.lab6["justify"] = "right"
+        self.lab6["anchor"] = "ne"
+        self.lab6["text"] = "Rossette Gauge Angle 2, Deg"
+        self.lab6.place(x=770,y=850,width=250,height=25)
+
+        #Strain Gauge Angles 3 Label
+        self.lab7=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab7["font"] = ft
+        self.lab7["fg"] = "#333333"
+        self.lab7["justify"] = "right"
+        self.lab7["anchor"] = "ne"
+        self.lab7["text"] = "Rossette Gauge Angle 3, Deg"
+        self.lab7.place(x=770,y=875,width=250,height=25)
+
+        #Strain Gauge Angle Correction Label
+        self.lab8=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab8["font"] = ft
+        self.lab8["fg"] = "#333333"
+        self.lab8["justify"] = "right"
+        self.lab8["anchor"] = "ne"
+        self.lab8["text"] = "Rosette Gauge Angle Correction, Deg"
+        self.lab8.place(x=770,y=900,width=250,height=25)
+
+        self.lab9=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab9["font"] = ft
+        self.lab9["fg"] = "#333333"
+        self.lab9["justify"] = "right"
+        self.lab9["anchor"] = "nw"
+        self.lab9["text"] = "Modulus of Elasticity, MPa"
+        self.lab9.place(x=1550,y=825,width=250,height=25)
+
+        self.lab10=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab10["font"] = ft
+        self.lab10["fg"] = "#333333"
+        self.lab10["justify"] = "right"
+        self.lab10["anchor"] = "nw"
+        self.lab10["text"] = "Poisson's Ratio"
+        self.lab10.place(x=1550,y=850,width=250,height=25)
+
+        self.lab11=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab11["font"] = ft
+        self.lab11["fg"] = "#333333"
+        self.lab11["justify"] = "right"
+        self.lab11["anchor"] = "nw"
+        self.lab11["text"] = "Rosette Gauge Properties"
+        self.lab11.place(x=1030,y=800,width=250,height=25)
+
+        self.lab12=tk.Label(root)
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lab12["font"] = ft
+        self.lab12["fg"] = "#333333"
+        self.lab12["justify"] = "right"
+        self.lab12["anchor"] = "nw"
+        self.lab12["text"] = "Material Properties"
+        self.lab12.place(x=1290,y=800,width=250,height=25)
+
+        #Strain Gauge Angles 1
+        self.Ent1=tk.Entry(root)
+        self.Ent1["bg"] = "#ffffff"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.Ent1["font"] = ft
+        self.Ent1["fg"] = "#000000"
+        self.Ent1["justify"] = "left"
+        self.Ent1.insert(0, "45")
+        self.Ent1.place(x=1030,y=825,width=250,height=25)
+
+        #Strain Gauge Angles 2
+        self.Ent2=tk.Entry(root)
+        self.Ent2["bg"] = "#ffffff"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.Ent2["font"] = ft
+        self.Ent2["fg"] = "#000000"
+        self.Ent2["justify"] = "left"
+        self.Ent2.insert(0, "90")
+        self.Ent2.place(x=1030,y=850,width=250,height=25)
+
+        #Strain Gauge Angles 3
+        self.Ent3=tk.Entry(root)
+        self.Ent3["bg"] = "#ffffff"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.Ent3["font"] = ft
+        self.Ent3["fg"] = "#000000"
+        self.Ent3["justify"] = "left"
+        self.Ent3.insert(0, "135")
+        self.Ent3.place(x=1030,y=875,width=250,height=25)
+
+        #Strain Gauge Angle Correction
+        self.Ent4=tk.Entry(root)
+        self.Ent4["bg"] = "#ffffff"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.Ent4["font"] = ft
+        self.Ent4["fg"] = "#000000"
+        self.Ent4["justify"] = "left"
+        self.Ent4.insert(0, "0")
+        self.Ent4.place(x=1030,y=900,width=250,height=25)
+
+        #Modulus of Elasticity
+        self.Ent5=tk.Entry(root)
+        self.Ent5["bg"] = "#ffffff"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.Ent5["font"] = ft
+        self.Ent5["fg"] = "#000000"
+        self.Ent5["justify"] = "left"
+        self.Ent5.insert(0, "200000")
+        self.Ent5.place(x=1290,y=825,width=250,height=25)
+
+        #Poisson's ratio
+        self.Ent6=tk.Entry(root)
+        self.Ent6["bg"] = "#ffffff"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.Ent6["font"] = ft
+        self.Ent6["fg"] = "#000000"
+        self.Ent6["justify"] = "left"
+        self.Ent6.insert(0, "0.3")
+        self.Ent6.place(x=1290,y=850,width=250,height=25)
+
+        #Listbox for X Datas
+        self.lb1=tk.Listbox(root)
+        self.lb1["borderwidth"] = "1px"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lb1["font"] = ft
+        self.lb1["fg"] = "#220ceb"
+        self.lb1["justify"] = "left"
+        self.lb1.place(x=40,y=70,width=250,height=520)
+        self.scrollbar1 = tk.Scrollbar(self.lb1, orient=tk.VERTICAL, command=self.lb1.yview)
+        self.scrollbar1.pack(side = tk.RIGHT, fill = tk.BOTH)
+
+        #Listbox for Y Datas
+        self.lb2=tk.Listbox(root,selectmode='multiple')
+        self.lb2["borderwidth"] = "1px"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.lb2["font"] = ft
+        self.lb2["fg"] = "#220ceb"
+        self.lb2["justify"] = "left"
+        self.lb2.place(x=320,y=70,width=250,height=520)
+        self.scrollbar2 = tk.Scrollbar(self.lb2, orient=tk.VERTICAL, command=self.lb2.yview)
+        self.scrollbar2.pack(side = tk.RIGHT, fill = tk.BOTH)
+
+        #Treeview for Data Resuls
+        columns=['Data Name','Data Min Value','Data Max Value','Data Units']
+        self.tree=ttk.Treeview(root,columns=columns,show='headings')
+        for column in self.tree["columns"]:
+            self.tree.column(column, anchor=tk.CENTER)
+        self.tree.heading('Data Name', text='Data Name')
+        self.tree.heading('Data Min Value', text='Data Min Value')
+        self.tree.heading('Data Max Value', text='Data Max Value')
+        self.tree.heading('Data Units', text='Data Units')
+        self.tree.place(x=600,y=680,width=1200,height=100)
+        self.scrollbar3 = tk.Scrollbar(self.tree, orient=tk.VERTICAL, command=self.tree.yview)
+        self.scrollbar3.pack(side = tk.RIGHT, fill = tk.BOTH)
+
+        #Button 0 for get Plot Data
+        self.bt0=tk.Button(root)
+        self.bt0["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt0["font"] = ft
+        self.bt0["fg"] = "#000000"
+        self.bt0["justify"] = "left"
+        self.bt0["text"] = "Import File"
+        self.bt0.place(x=470,y=10,width=100,height=25)
+        self.bt0['command'] = self.bt0_command
+
+        #Button 1 for get X Data
+        self.bt1=tk.Button(root)
+        self.bt1["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt1["font"] = ft
+        self.bt1["fg"] = "#000000"
+        self.bt1["justify"] = "left"
+        self.bt1["text"] = "Get X Values"
+        self.bt1.place(x=40,y=600,width=250,height=25)
+        self.bt1['command'] = self.bt1_command
+
+        #Button 2 for get Y Data
+        self.bt2=tk.Button(root)
+        self.bt2["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt2["font"] = ft
+        self.bt2["fg"] = "#000000"
+        self.bt2["justify"] = "left"
+        self.bt2["text"] = "Get Y Values"
+        self.bt2.place(x=320,y=600,width=250,height=25)
+        self.bt2['command'] = self.bt2_command
+
+        #Button 3 for Plot
+        self.bt3=tk.Button(root)
+        self.bt3["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt3["font"] = ft
+        self.bt3["fg"] = "#000000"
+        self.bt3["justify"] = "left"
+        self.bt3["text"] = "Import Plot"
+        self.bt3.place(x=510,y=950,width=250,height=25)
+        self.bt3['command'] = self.bt3_command
+
+        #Button 4 for Clear Plot
+        self.bt4=tk.Button(root)
+        self.bt4["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt4["font"] = ft
+        self.bt4["fg"] = "#000000"
+        self.bt4["justify"] = "left"
+        self.bt4["text"] = "Clear Plot"
+        self.bt4.place(x=1290,y=950,width=250,height=25)
+        self.bt4['command'] = self.bt4_command
+
+        #Button 5 for Export Graph
+        self.bt5=tk.Button(root)
+        self.bt5["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt5["font"] = ft
+        self.bt5["fg"] = "#000000"
+        self.bt5["justify"] = "left"
+        self.bt5["text"] = "Export Plot"
+        self.bt5.place(x=770,y=950,width=250,height=25)
+        self.bt5['command'] = self.bt5_command
+
+        #Button 6 for Stress and Strain Calculation
+        self.bt6=tk.Button(root)
+        self.bt6["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt6["font"] = ft
+        self.bt6["fg"] = "#000000"
+        self.bt6["justify"] = "left"
+        self.bt6["text"] = "Stress and Strain Calculation"
+        self.bt6.place(x=1030,y=950,width=250,height=25)
+        self.bt6['command'] = self.bt6_command
+
+        #Button 7 for Exit
+        self.bt7=tk.Button(root)
+        self.bt7["bg"] = "#f0f0f0"
+        ft = tkFont.Font(family="Arial",size=10)
+        self.bt7["font"] = ft
+        self.bt7["fg"] = "#000000"
+        self.bt7["justify"] = "left"
+        self.bt7["text"] = "Exit"
+        self.bt7.place(x=1550,y=950,width=250,height=25)
+        self.bt7['command'] = root.quit
+
+        self.fig1, self.ax = plt.subplots()
+        self.ax.axis('off')
+        self.canvas1 = FigureCanvasTkAgg(self.fig1, root)
+        self.canvas1.get_tk_widget().place(x=600,y=70,width=1200,height=600)
+
+    def about_window(self): # about window message
+        root2 = tk.Tk()
+        root2.geometry("600x400")
+        root2.title('About | RSP Plotter')
+        root2.iconbitmap('rsp.ico')  # Samet
+
+        lab13=tk.Label(root2)
+        ft = tkFont.Font(family='Arial',size=14)
+        lab13['font'] = ft
+        lab13['fg'] = "#333333"
+        lab13['justify'] = "center"
+        lab13['text'] = "RSP Plotter v1.0"
+        lab13.place(x=160,y=70,width=289,height=30)
+
+        lab14=tk.Label(root2)
+        ft = tkFont.Font(family='Arial',size=14)
+        lab14['font'] = ft
+        lab14['fg'] = "#333333"
+        lab14['justify'] = "center"
+        lab14['text'] = "is designed for TS1400 - TEI"
+        lab14.place(x=160,y=100,width=289,height=30)
+
+        lab15=tk.Label(root2)
+        ft = tkFont.Font(family='Arial',size=14)
+        lab15['font'] = ft
+        lab15['fg'] = "#333333"
+        lab15['justify'] = "center"
+        lab15['text'] = "by Combustion Chamber Team | 2022"
+        lab15.place(x=160,y=140,width=289,height=30)
+
+        lab16=tk.Label(root2)
+        ft = tkFont.Font(family='Arial',size=14)
+        lab16['font'] = ft
+        lab16['fg'] = "#333333"
+        lab16['justify'] = "center"
+        lab16['text'] = "Onur Agdaci -  Samet Kizilaslan "
+        lab16.place(x=160,y=180,width=289,height=30)
+
+        bt7=tk.Button(root2)
+        bt7['bg'] = "#f0f0f0"
+        ft = tkFont.Font(family='ArialTimes',size=12)
+        bt7['font'] = ft
+        bt7['fg'] = "#000000"
+        bt7['justify'] = "center"
+        bt7['text'] = "Close"
+        bt7.place(x=200,y=350,width=200,height=30)
+        bt7['command'] = root2.destroy
+
+    def bt0_command(self):  # Import and Convert File
+        rpc_file_path = askopenfilename()  # RPC File Path
+        if not rpc_file_path:
+            return
+
+        try:
+            # Eksik basliklar icin: incelenen RSP dosyasinin boyutu 16 bit ile uyumlu.
+            # INT_FULL_SCALE=32768, SCALE.CHAN katsayisinin dogrudan carpan
+            # oldugu varsayimidir; fiziksel degerleri kaynak yazilimla dogrulayin.
+            # rpc-reader, dosyada zaten bulunan basliklari degistirmez.
+            prc_object = rpc_reader.ReadRPC(
+                rpc_file_path,
+                extra_headers=[
+                    ("DATA_TYPE", "SHORT_INTEGER"),
+                    ("INT_FULL_SCALE", "32768"),
+                ],
+            )
+            prc_object.import_rpc_data_from_file()
+            channels = prc_object.get_channels()
+            data = prc_object.get_data()
+            time = prc_object.get_time()
+        except SystemExit as exc:
+            messagebox.showerror("RPC okuma hatasÄ±", str(exc))
+            return
+        except Exception as exc:
+            messagebox.showerror("Dosya okuma hatasÄ±", str(exc))
+            return
+
+        self.head, self.tail = os.path.split(rpc_file_path)
+        self.lb1.delete(0, tk.END)
+        self.lb2.delete(0, tk.END)
+        self.lab0['text'] = rpc_file_path
+        self.data = data
+        self.Z = time
+        self.D=[]  # Create List
+        self.U=[]  # Create List
+        for key, value in channels.items():  # Get Channel Names from Description
+            for subject, score in value.items():
+                if subject == 'Description':
+                    self.D.append(score)
+                if subject == 'Units':  # Get Channel Units from Units
+                    self.U.append(score)
+            filename=self.D[key]
+            self.lb1.insert(tk.END,filename)
+            self.lb2.insert(tk.END,filename)
+        self.lb1.insert(tk.END,'Time')
+        self.lb2.insert(tk.END,'Time')
+
+    def bt1_command(self):  # Get Values from listbox
+        self.lb1select = [self.lb1.get(idx) for idx in self.lb1.curselection()]
+        self.lab3['text']=self.lab3['text']+'\n'+self.lb1select[0]
+
+    def bt2_command(self):
+        self.lb2select = [self.lb2.get(idx) for idx in self.lb2.curselection()]
+        self.units=[]
+        for i in self.lb2.curselection():
+            self.units.append(i)
+
+        for i in range(len(self.lb2select)):
+            self.lab4['text']=self.lab4['text']+'\n'+self.lb2select[i]
+
+    def bt3_command(self):
+        self.tree.delete(*self.tree.get_children())
+        self.fig1, self.ax = plt.subplots()
+        Column_Names=['Data Name','Data Min Value','Data Max Value','Units']
+        self.Table_List = [["" for c in range(len(Column_Names))] for r in range(len(self.lb2select))]
+        for item in self.canvas1.get_tk_widget().find_all():
+            self.canvas1.get_tk_widget().delete(item)
+
+        self.aydata=[]
+        self.X_Data_Name = self.lb1select[0]
+        if self.X_Data_Name=='Time':
+            self.axdata = self.Z[0]
+        else:
+            AA=self.D.index(self.X_Data_Name)
+            self.axdata=self.data[:,AA]
+
+        for i in range(len(self.lb2select)):
+            self.Y_Data_Name = self.lb2select[i]
+            if self.Y_Data_Name=='Time':
+                self.aydata.append(self.Z[0])
+            else:
+                AA=self.D.index(self.Y_Data_Name)
+                self.aydata.append(self.data[:,AA])
+            self.Table_List[i][0]=self.Y_Data_Name
+            self.Table_List[i][1]=(min(self.aydata[i]))
+            self.Table_List[i][2]=(max(self.aydata[i]))
+            if self.Y_Data_Name=='Time':
+                idxy='Sec'
+                self.Table_List[i][3]=('['+idxy+']')
+                self.ax.plot(self.axdata, self.aydata[i],label=self.Y_Data_Name+'['+idxy+']')
+            else:
+                idxy=self.D.index(self.Y_Data_Name)
+                self.Table_List[i][3]=('['+self.U[idxy]+']')
+                self.ax.plot(self.axdata, self.aydata[i],label=self.Y_Data_Name+'['+self.U[idxy]+']',linewidth=0.5)
+
+            self.tree.insert('', 'end',iid=i, values=(self.Table_List[i][0],self.Table_List[i][1],self.Table_List[i][2],self.Table_List[i][3],))
+        self.ax.axis('on')
+        self.ax.legend(loc='upper left')
+        self.ax.grid()
+        self.canvas1 = FigureCanvasTkAgg(self.fig1, root)  # A tk.DrawingArea.
+        self.canvas1.get_tk_widget().place(x=600,y=70,width=1200,height=600)
+        self.lab3['text']='Selected X Data'
+        self.lab4['text']='Selected Y Data'
+
+    def bt4_command(self):
+        self.lab3['text']='Selected X Data'
+        self.lab4['text']='Selected Y Data'
+        self.tree.delete(*self.tree.get_children())
+        self.fig1, self.ax = plt.subplots()
+        for item in self.canvas1.get_tk_widget().find_all():
+            self.canvas1.get_tk_widget().delete(item)
+
+    def bt5_command(self):  # Export graph
+        dict1 = {self.X_Data_Name:self.axdata}
+        for i in range(len(self.lb2select)):
+            dict1.update({str(self.Table_List[i][0]+self.Table_List[i][3]): self.aydata[i]})
+        df = pd.DataFrame(dict1)
+        Dpsec=len(df.index)/max(self.axdata)
+        Freq=1  # New sampling frequency per second with mean value
+        NS=Dpsec/Freq  # Define new division
+        s = (df.index.to_series() / int(NS)).astype(int)  # Create Label group
+        df = df.groupby(s).mean().set_index(s.index[0::int(NS)])  # Get New Sampling by using mean value
+        df.to_csv(self.tail[:-4]+'.csv', encoding='utf-8', index=False)
+        fig = px.line(df, x = df.columns[0], y = df.columns[1:len(df.columns)], title=self.tail)
+        fig.update_traces(mode="lines")
+        fig.update_traces(line=dict(width=2))
+        fig.update_xaxes(showspikes=True,spikecolor='grey',spikesnap='cursor')
+        fig.update_layout(spikedistance=100, hoverdistance=100)
+        fig.update_layout(hovermode='x')
+        fig.write_html(self.tail[:-4]+'.html')
+        fig.show()
+
+    def bt6_command(self):  # Export principle strain
+        dict1 = {self.X_Data_Name:self.axdata}
+        if len(self.lb2select)>3:
+            return
+
+        if self.Table_List[0][3]==self.Table_List[1][3]==self.Table_List[2][3]:
+            if self.Table_List[0][0][:-1]==self.Table_List[1][0][:-1]==self.Table_List[2][0][:-1]:
+                if self.Table_List[0][0][-1]=="1" and self.Table_List[1][0][-1]=="2" and self.Table_List[2][0][-1]=="3":
+                    self.EX=[]
+                    self.EY=[]
+                    self.EXY=[]
+                    self.SX=[]
+                    self.SY=[]
+                    self.SXY=[]
+                    self.S1=[]
+                    self.S3=[]
+                    self.Seqv=[]
+
+                    Ang1=float(self.Ent1.get())
+                    Ang2=float(self.Ent2.get())
+                    Ang3=float(self.Ent3.get())
+                    Ang4=float(self.Ent4.get())
+                    E=float(self.Ent5.get())
+                    v=float(self.Ent6.get())
+
+                    Ang1=math.radians(Ang1)
+                    Ang2=math.radians(Ang2)
+                    Ang3=math.radians(Ang3)
+                    Ang4=math.radians(Ang4)
+
+                    A=np.array([[math.cos(Ang1)**2, math.sin(Ang1)**2, math.cos(Ang1)*math.sin(Ang1)],
+                                [math.cos(Ang2)**2, math.sin(Ang2)**2, math.cos(Ang2)*math.sin(Ang2)],
+                                [math.cos(Ang3)**2, math.sin(Ang3)**2, math.cos(Ang3)*math.sin(Ang3)]])
+
+                    B=np.array([self.aydata[0],self.aydata[1],self.aydata[2]])
+                    X = np.linalg.solve(A,B)
+
+                    self.EX=X[0]
+                    self.EY=X[1]
+                    self.EXY=X[2]
+
+                    #Coordinate Correction
+                    self.EX=(self.EX+self.EY)/2+((self.EX-self.EY)/2)*math.cos(2*Ang4)+self.EXY*math.sin(2*Ang4)
+                    self.EY=(self.EX+self.EY)/2-((self.EX-self.EY)/2)*math.cos(2*Ang4)-self.EXY*math.sin(2*Ang4)
+                    self.EXY=-((self.EX-self.EY)/2)*math.sin(2*Ang4)+self.EXY*math.cos(2*Ang4)
+                    self.SX=((self.EX*(10**-6)+self.EY*(10**-6)*v)*E)/(1-v**2)  # Component X Stress
+                    self.SY=((self.EY*(10**-6)+self.EX*(10**-6)*v)*E)/(1-v**2)  # Component Y Stress
+                    self.SXY=(self.EXY*(10**-6))*E/(2+2*v)  # Shear Stress
+                    self.S1=((self.SX+self.SY)/2)+(((self.SX-self.SY)/2)**2+self.SXY**2)**0.5  # Max Principle Stress
+                    self.S3=((self.SX+self.SY)/2)-(((self.SX-self.SY)/2)**2+self.SXY**2)**0.5  # Min Principle Stress
+                    self.Seqv=(self.S1**2-self.S1*self.S3+self.S3**2)**0.5  # Equivalent Stress
+
+                    for i in range(len(self.lb2select)):
+                        dict1.update({str(self.Table_List[i][0]+self.Table_List[i][3]): self.aydata[i]})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'ÎµX': self.EX})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'ÎµY': self.EY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'ÎµXY': self.EXY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SX': self.SX})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SY': self.SY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SXY': self.SXY})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'S1': self.S1})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'S3': self.S3})
+                    dict1.update({str(self.Table_List[0][0][:-1])+'SEqv': self.Seqv})
+                    df = pd.DataFrame(dict1)
+                    Dpsec=len(df.index)/max(self.axdata)
+                    Freq=1  # New sampling frequency per second with mean value
+                    NS=Dpsec/Freq  # Define new division
+                    s = (df.index.to_series() / int(NS)).astype(int)
+                    df = df.groupby(s).mean().set_index(s.index[0::int(NS)])
+                    fig = px.line(df, x = df.columns[0], y = df.columns[1:len(df.columns)], title=self.tail)
+                    fig.update_traces(mode="lines")
+                    fig.update_traces(line=dict(width=2))
+                    fig.update_xaxes(showspikes=True,spikecolor='grey',spikesnap='cursor')
+                    fig.update_layout(spikedistance=100, hoverdistance=100)
+                    fig.update_layout(hovermode='x')
+                    fig.write_html(str(self.Table_List[0][0][:-1])+'Calculated'+'.html')
+                    fig.show()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
